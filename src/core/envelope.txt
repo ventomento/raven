@@ -1,0 +1,76 @@
+ENCRYPTED ENVELOPE FORMAT (VERSION 1)
+
+All multi-byte integers are encoded in big-endian (network byte order).
+
+----------------------------------------------------------------------
+OVERVIEW
+----------------------------------------------------------------------
+
+This format defines a binary envelope for transporting encrypted messages.
+
+- The header is UNTRUSTED metadata and MUST NOT be used for security decisions
+- The payload is protected using AES-GCM and provides confidentiality and integrity
+- No cryptographic binding exists between header and payload
+- Transport layer is responsible for authentication, rate limiting, and admission control
+
+----------------------------------------------------------------------  
+HEADER (FIXED SIZE)
+----------------------------------------------------------------------
+
+FIELD NAME              SIZE (BYTES)    TYPE        DESCRIPTION
+
+version                 1               uint8       Protocol version (MUST be 0x01)
+
+uuid                    16              bytes       UUID (RFC 4122 format, opaque identifier)
+
+sender_public_key       32              bytes       Ed25519 public key (RFC 8032 format)
+
+recipient_public_key    32              bytes       Ed25519 public key (RFC 8032 format)
+
+timestamp               8               uint64      UTC timestamp (seconds since Unix epoch)
+
+content_type            1               uint8       Application-defined payload type hint
+
+payload_size            4               uint32      Size of encrypted payload section (bytes)
+
+TOTAL HEADER SIZE: 94 bytes
+
+----------------------------------------------------------------------  
+ENCRYPTED PAYLOAD (VARIABLE SIZE)
+----------------------------------------------------------------------
+
+The payload section immediately follows the header and has length = payload_size.
+
+FIELD NAME              SIZE (BYTES)    TYPE        DESCRIPTION
+
+aes_nonce               12              bytes       AES-GCM nonce (MUST be unique per key)
+
+ciphertext              variable        bytes       Encrypted payload
+
+auth_tag                16              bytes       AES-GCM authentication tag
+
+----------------------------------------------------------------------  
+CONSTRAINTS
+----------------------------------------------------------------------
+
+- payload_size MUST be >= 28
+- payload_size MUST equal:
+    12 (aes_nonce) + len(ciphertext) + 16 (auth_tag)
+
+- ciphertext length MUST be:
+    payload_size - 28
+
+- aes_nonce MUST be unique per encryption key
+
+/* ---------------------------------------------------------
+   1. CONTENT TYPE
+--------------------------------------------------------- */
+
+typedef uint8_t ContentType;
+
+#define CT_TEXT_UTF8  0x01
+#define CT_IMAGE      0x02
+#define CT_VIDEO      0x03
+#define CT_AUDIO      0x04
+#define CT_FILE       0x05
+#define CT_UNKNOWN    0xFF
