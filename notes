@@ -1,0 +1,20 @@
+crypto/
+  x25519.js
+  aes-gcm.js
+  kdf.js
+
+encoding/
+  hex.js
+  utf8.js
+
+envelope/
+  codec.js
+  reader.js
+  writer.js
+
+protocol/
+  encrypt-message.js
+  decrypt-message.js
+
+identity/
+  identity.js

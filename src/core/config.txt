@@ -1,610 +1,153 @@
-NOTES ON CURVE NAMING & RELATIONSHIPS
-=====================================
-
-Summary:
-- Curve25519     → A Montgomery elliptic curve
-- Edwards25519   → A twisted Edwards elliptic curve
-                   (also called Ed25519 curve)
-- X25519         → A key exchange algorithm that uses Curve25519
-- Ed25519        → A digital signature algorithm that uses Edwards25519
-
-Important Point:
-Curve25519 and Edwards25519 are NOT two completely different curves.
-They are two different representations (forms) of essentially the same
-curve. They are birationally equivalent — meaning there is a mathematical
-mapping that converts points between them (defined in RFC 7748).
-
-Design Decision:
-We use Ed25519 as the primary identity and signing curve.
-X25519 keys are derived on-the-fly for key exchange using the
-birational mapping (RFC 7748).
-
 {
   "version": "1.0",
-  "description": "Cryptographic configuration: Ed25519 identity + X25519 key exchange + AES-GCM encryption",
 
-  "identity": {
-    "curve": "Ed25519",
-    "purpose": "primary_identity_and_signing",
-    "publicKeyFormat": "compressed_point",
-    "privateKeyFormat": "seed",
-    "note": "This is the main public identity stored and shared with others"
-    "note": "use RFC 8032 (EdDSA) for Ed25519 key generation such that mapping between the homomorphic curves are possible"
+  "description": "Cryptographic configuration using X25519 key agreement and AES-256-GCM authenticated encryption",
+
+  "standards": {
+    "x25519": "RFC7748",
+    "aesGcm": "NIST SP 800-38D",
+    "sha256": "FIPS 180-4"
   },
 
-  "sign": {
-    "algorithm": "Ed25519",
-    "curve": "Edwards25519",
-    "hash": "SHA-512",
-    "outputFormat": "signature_64bytes",
-    "description": "Used to sign messages with the Ed25519 private key"
+  "identity": {
+    "algorithm": "X25519",
+
+    "curve": {
+      "name": "Curve25519",
+      "form": "Montgomery"
+    },
+
+    "privateKey": {
+      "storedRepresentation": {
+        "type": "32_byte_random_secret",
+        "encoding": "hex",
+        "byteOrder": "raw_byte_sequence"
+      },
+
+      "operationalRepresentation": {
+        "type": "RFC7748_clamped_scalar",
+
+        "clampingRules": [
+          "clear bits 0,1,2 of byte 0",
+          "clear bit 7 of byte 31",
+          "set bit 6 of byte 31"
+        ]
+      },
+
+      "generation": {
+        "method": "cryptographically_secure_random_bytes",
+        "sizeBytes": 32
+      },
+
+      "note": "The stored 32-byte secret is transformed into a clamped scalar during X25519 scalar multiplication operations"
+    },
+
+    "publicKey": {
+      "representation": {
+        "type": "montgomery_u_coordinate",
+        "encoding": "hex",
+        "sizeBytes": 32,
+        "byteOrder": "little_endian"
+      },
+
+      "derivation": {
+        "operation": "scalar_multiplication",
+        "basePoint": "Curve25519_standard_basepoint_u_coordinate_9",
+        "formula": "publicKey = X25519(privateKey, basePoint)"
+      },
+
+      "note": "The public key is the Montgomery u-coordinate only. The corresponding v-coordinate is intentionally omitted as specified by RFC 7748"
+    },
+
+    "sharedIdentity": {
+      "type": "public_key",
+      "field": "publicKey"
+    }
   },
 
   "keyExchange": {
     "algorithm": "X25519",
-    "curve": "Curve25519",
-    "conversion": {
-      "from": "Ed25519",
-      "to": "X25519",
-      "method": "birational_map_rfc7748"
+
+    "sharedSecret": {
+      "sizeBytes": 32,
+
+      "representation": {
+        "encoding": "hex",
+        "byteOrder": "little_endian"
+      },
+
+      "formula": "sharedSecret = X25519(localPrivateKey, remotePublicKey)"
     },
-    "description": "Derive X25519 key on-the-fly from Ed25519 identity for shared secret computation"
+
+    "securityProperties": [
+      "Based on elliptic curve Diffie-Hellman over Curve25519",
+      "Uses Montgomery ladder scalar multiplication",
+      "Uses only the Montgomery u-coordinate representation",
+      "Omission of the v-coordinate does not reduce practical discrete logarithm security",
+      "Underlying elliptic curve points still form a mathematical group"
+    ]
   },
 
-  "sym": {
+  "symmetricEncryption": {
     "algorithm": "AES-GCM",
-    "keySize": 256,
-    "ivSize": 12, 
-    "tagSize": 16,
-    "keyDerivation": {
-      "method": "direct_hash",
-      "hashFunction": "SHA-256",
-      "input": "X25519_shared_secret_32bytes",
-      "note": "Directly hash the raw X25519 shared secret to produce the 256-bit AES key"
+
+    "key": {
+      "sizeBits": 256,
+
+      "derivation": {
+        "method": "SHA-256",
+        "input": "raw_32_byte_x25519_shared_secret",
+        "output": "32_byte_aes256_key",
+
+        "formula": "aesKey = SHA256(sharedSecret)"
+      }
     },
-    "description": "Symmetric encryption used after deriving shared secret via X25519"
+
+    "iv": {
+      "sizeBytes": 12,
+      "generation": "cryptographically_secure_random_bytes"
+    },
+
+    "authenticationTag": {
+      "sizeBytes": 16
+    }
   },
 
   "workflow": {
-    "signMessage": [
-      "1. Use local Ed25519 private key",
-      "2. Sign message directly with Ed25519"
+    "identityGeneration": [
+      "1. Generate 32 cryptographically secure random bytes",
+      "2. Store these bytes as the persistent private key secret",
+      "3. Apply RFC7748 clamping during X25519 operations",
+      "4. Compute publicKey = X25519(privateKey, basePoint)",
+      "5. Share the resulting 32-byte public key"
     ],
+
     "encryptToRecipient": [
-      "1. Take recipient's Ed25519 public key",
-      "2. Convert recipient Ed25519 pubkey → X25519 pubkey (birational map)",
-      "3. Compute shared secret = X25519(local X25519 priv, recipient X25519 pub)",
-      "4. AES key = SHA-256(shared secret)",
-      "5. Encrypt message using AES-GCM with the derived key"
+      "1. Obtain recipient X25519 public key",
+      "2. Compute sharedSecret = X25519(localPrivateKey, recipientPublicKey)",
+      "3. Compute aesKey = SHA256(sharedSecret)",
+      "4. Generate random 12-byte IV",
+      "5. Encrypt plaintext using AES-256-GCM"
+    ],
+
+    "decryptFromSender": [
+      "1. Obtain sender X25519 public key",
+      "2. Compute sharedSecret = X25519(localPrivateKey, senderPublicKey)",
+      "3. Compute aesKey = SHA256(sharedSecret)",
+      "4. Decrypt ciphertext using AES-256-GCM"
     ]
   },
 
   "notes": [
-    "Ed25519 is the single source of truth for identity",
-    "X25519 keys are derived on-the-fly only when needed",
-    "No HKDF - using direct SHA-256 of the raw shared secret for AES-256 key",
-    "AES-GCM provides authenticated encryption",
-    "All curve conversions follow RFC 7748"
+    "X25519 public keys are the primary participant identities",
+    "No Ed25519 or Edwards25519 operations are used",
+    "No curve conversions or birational mappings are used",
+    "Public keys contain only Montgomery u-coordinates",
+    "Private keys are stored as 32-byte random secrets",
+    "Operational scalars are derived via RFC7748 clamping",
+    "All key agreement operations follow RFC7748 exactly",
+    "AES-GCM provides authenticated encryption and integrity protection",
+    "A user need hex of public key to send messages to that address",
+    "A user need hex of private key (seed) to 'log in' to his inbox"
   ]
 }
-
-# 🔐 Minimal Crypto Transport Interface (v1.3)
-
----
-
-# 1. Primitive Types
-
-BYTE            = 8-bit value
-BYTE_ARRAY      = array of BYTE
-BYTE_ARRAY[n]   = array of exactly n BYTEs
-
----
-
-# 2. Fixed Sizes
-
-Ed25519PublicKey    = BYTE_ARRAY[32]
-Ed25519PrivateKey   = BYTE_ARRAY[32]
-
-X25519PublicKey     = BYTE_ARRAY[32]
-X25519PrivateKey    = BYTE_ARRAY[32]
-
-SharedSecret        = BYTE_ARRAY[32]
-
-AES256Key           = BYTE_ARRAY[32]
-Nonce               = BYTE_ARRAY[12]
-
-Signature           = BYTE_ARRAY[64]
-
-AuthTag             = BYTE_ARRAY[16]
-
----
-
-# 3. Identity
-
-FUNCTION GenerateIdentityKeypair()
-
-RETURNS:
-publicKey  : BYTE_ARRAY[32]
-privateKey : BYTE_ARRAY[32]
-
-DESCRIPTION:
-Generates an Ed25519 identity keypair.
-
-CONSTRAINTS:
-- privateKey MUST be exactly 32 bytes
-- publicKey MUST correspond to privateKey
-
----
-
-# 4. Curve Conversion
-
-FUNCTION ConvertEd25519PublicKeyToX25519(
-edPublicKey : BYTE_ARRAY[32]
-)
-
-RETURNS:
-xPublicKey : BYTE_ARRAY[32]
-
----
-
-FUNCTION ConvertEd25519PrivateKeyToX25519(
-edPrivateKey : BYTE_ARRAY[32]
-)
-
-RETURNS:
-xPrivateKey : BYTE_ARRAY[32]
-
----
-
-# 5. Public Key Validation
-
-FUNCTION ValidateX25519PublicKey(
-publicKey : BYTE_ARRAY[32]
-)
-
-RETURNS:
-isValid : BOOLEAN
-
-DESCRIPTION:
-Validates that a public key is safe for X25519 key exchange.
-
-REQUIRED CHECKS:
-
-```
-1. Length:
-    - MUST be exactly 32 bytes  
-
-2. Non-zero:
-    - MUST NOT be all-zero  
-
-3. Low-order points:
-    - MUST reject known low-order points for Curve25519  
-```
-
-RETURN:
-TRUE  → valid
-FALSE → reject
-
----
-
-# 6. Key Exchange
-
-FUNCTION DeriveSharedSecret(
-myPrivateKey   : BYTE_ARRAY[32],
-theirPublicKey : BYTE_ARRAY[32]
-)
-
-RETURNS:
-sharedSecret : BYTE_ARRAY[32]
-
-DESCRIPTION:
-Raw X25519 scalar multiplication.
-
----
-
-# 7. Safe Shared Secret Derivation
-
-FUNCTION DeriveSharedSecretSafe(
-myPrivateKey   : BYTE_ARRAY[32],
-theirPublicKey : BYTE_ARRAY[32]
-)
-
-RETURNS:
-sharedSecret : BYTE_ARRAY[32]
-
-ERROR:
-InvalidPublicKey
-
-DESCRIPTION:
-Safe X25519 key exchange with validation.
-
-STEPS:
-
-```
-IF ValidateX25519PublicKey(theirPublicKey) == FALSE:
-    RAISE InvalidPublicKey  
-
-sharedSecret = DeriveSharedSecret(myPrivateKey, theirPublicKey)  
-
-IF sharedSecret == BYTE_ARRAY[32] of all zeros:
-    RAISE InvalidPublicKey  
-```
-
----
-
-# 8. AES Key Derivation (Direct Hash)
-
-FUNCTION DeriveAES256Key(
-sharedSecret : BYTE_ARRAY[32]
-)
-
-RETURNS:
-aesKey : BYTE_ARRAY[32]
-
-DEFINITION:
-aesKey = SHA-256(sharedSecret)
-
-CONSTRAINTS:
-- sharedSecret MUST be exactly 32 bytes
-- SHA-256 MUST be used directly
-- no salt, no KDF, no expansion
-
----
-
-# 9. Nonce
-
-FUNCTION GenerateNonce()
-
-RETURNS:
-nonce : BYTE_ARRAY[12]
-
-CONSTRAINTS:
-- MUST be exactly 12 bytes
-- MUST be unique per encryption with same key
-
----
-
-# 10. AES-256-GCM
-
-## 10.1 Encrypt
-
-FUNCTION Encrypt(
-plaintext : BYTE_ARRAY,
-key       : BYTE_ARRAY[32],
-nonce     : BYTE_ARRAY[12]
-)
-
-RETURNS:
-ciphertext : BYTE_ARRAY
-tag        : BYTE_ARRAY[16]
-
-CONSTRAINTS:
-- key MUST be 32 bytes
-- nonce MUST be 12 bytes
-- tag MUST be 16 bytes
-
----
-
-## 10.2 Decrypt
-
-FUNCTION Decrypt(
-ciphertext : BYTE_ARRAY,
-tag        : BYTE_ARRAY[16],
-key        : BYTE_ARRAY[32],
-nonce      : BYTE_ARRAY[12]
-)
-
-RETURNS:
-plaintext : BYTE_ARRAY
-
-ERROR:
-AuthenticationFailure
-
-CONSTRAINTS:
-- MUST verify tag before returning plaintext
-
----
-
-# 11. Relay Authentication (Challenge-Based)
-
-FUNCTION SignChallenge(
-challenge  : BYTE_ARRAY,
-privateKey : BYTE_ARRAY[32]
-)
-
-RETURNS:
-signature : BYTE_ARRAY[64]
-
-DESCRIPTION:
-Signs relay-issued challenge using Ed25519.
-
----
-
-FUNCTION VerifyChallenge(
-challenge  : BYTE_ARRAY,
-signature  : BYTE_ARRAY[64],
-publicKey  : BYTE_ARRAY[32]
-)
-
-RETURNS:
-isValid : BOOLEAN
-
----
-
-# 12. Envelope
-
-STRUCT Envelope:
-senderPublicKey     : BYTE_ARRAY[32]
-recipientPublicKey  : BYTE_ARRAY[32]
-
-```
-nonce               : BYTE_ARRAY[12]  
-
-ciphertext          : BYTE_ARRAY  
-tag                 : BYTE_ARRAY[16]  
-```
-
-NOTES:
-- senderPublicKey and recipientPublicKey are cleartext metadata
-- NOT explicitly authenticated
-- integrity enforced via key agreement + AES-GCM
-
----
-
-# 13. Canonical Binary Encoding
-
-EnvelopeBinary =
-senderPublicKey      (32 bytes)
-recipientPublicKey   (32 bytes)
-nonce                (12 bytes)
-tag                  (16 bytes)
-ciphertextLength     (4 bytes, uint32 big-endian)
-ciphertext           (variable)
-
----
-
-# 14. Serialization
-
-FUNCTION SerializeEnvelope(
-envelope : Envelope
-)
-
-RETURNS:
-data : BYTE_ARRAY
-
-CONSTRAINTS:
-- MUST follow canonical field order
-- ciphertextLength MUST be 4-byte big-endian
-
----
-
-FUNCTION DeserializeEnvelope(
-data : BYTE_ARRAY
-)
-
-RETURNS:
-envelope : Envelope
-
-ERROR:
-InvalidFormat
-
-CONSTRAINTS:
-- MUST validate all lengths
-- MUST reject malformed input
-
----
-
-# 15. High-Level Operations
-
-## 15.1 Create Envelope
-
-FUNCTION CreateEnvelope(
-plaintext           : BYTE_ARRAY,
-senderPrivateKey    : BYTE_ARRAY[32],
-recipientPublicKey  : BYTE_ARRAY[32]
-)
-
-RETURNS:
-envelope : Envelope
-
-STEPS:
-
-```
-senderPublicKey = DerivePublicKey(senderPrivateKey)  
-
-senderXPriv   = ConvertEd25519PrivateKeyToX25519(senderPrivateKey)  
-recipientXPub = ConvertEd25519PublicKeyToX25519(recipientPublicKey)  
-
-sharedSecret  = DeriveSharedSecretSafe(senderXPriv, recipientXPub)  
-
-aesKey        = DeriveAES256Key(sharedSecret)  
-
-nonce         = GenerateNonce()  
-
-ciphertext, tag = Encrypt(plaintext, aesKey, nonce)  
-```
-
----
-
-## 15.2 Open Envelope
-
-FUNCTION OpenEnvelope(
-envelope            : Envelope,
-recipientPrivateKey : BYTE_ARRAY[32]
-)
-
-RETURNS:
-plaintext : BYTE_ARRAY
-
-ERROR:
-AuthenticationFailure
-InvalidPublicKey
-
-STEPS:
-
-```
-recipientXPriv = ConvertEd25519PrivateKeyToX25519(recipientPrivateKey)  
-senderXPub     = ConvertEd25519PublicKeyToX25519(envelope.senderPublicKey)  
-
-sharedSecret   = DeriveSharedSecretSafe(recipientXPriv, senderXPub)  
-
-aesKey         = DeriveAES256Key(sharedSecret)  
-
-plaintext      = Decrypt(
-                    envelope.ciphertext,
-                    envelope.tag,
-                    aesKey,
-                    envelope.nonce
-                 )  
-```
-
----
-
-# Hard Requirements
-
-1. All fixed-size fields MUST match exact sizes
-2. Nonce MUST NEVER repeat for same AES key
-3. DeriveSharedSecretSafe MUST be used (never raw DeriveSharedSecret)
-4. AES-GCM tag MUST be verified before returning plaintext
-5. Serialization MUST follow canonical format exactly
-6. No implicit encoding assumptions (no strings)
-7. Reject invalid or malformed public keys
-
-
-/*
-=====================================================================
-🔐 RELAY ENVELOPE PROTOCOL (v1.0)
-Federated encrypted messaging system (1 request = 1 envelope)
-=====================================================================
-*/
-
-#include <stdint.h>
-
-uint8_t is an unsigned 8-bit integer type defined in <stdint.h>
-
-/* ---------------------------------------------------------
-   1. CONTENT TYPE
---------------------------------------------------------- */
-
-typedef uint8_t ContentType;
-
-#define CT_TEXT_UTF8  0x01
-#define CT_IMAGE      0x02
-#define CT_VIDEO      0x03
-#define CT_AUDIO      0x04
-#define CT_FILE       0x05
-#define CT_UNKNOWN    0xFF
-
-
-/* ---------------------------------------------------------
-   1. ENVELOPE STRUCTURE (ON WIRE FORMAT)
---------------------------------------------------------- */
-
-typedef struct Envelope
-{
-    /* 32-byte Ed25519 public keys */
-    uint8_t senderPublicKey[32];
-    uint8_t recipientPublicKey[32];
-
-    /*
-    32-byte nonce
-    MUST be unique per (sender, recipient) pair
-
-    message_id = SHA-256(sender || recipient || nonce)
-    */
-    uint8_t nonce[32];
-
-    /* Client-provided UTC timestamp (seconds since epoch) */
-    uint64_t timestamp;
-
-    /* Content type hint (plaintext interpretation only) */
-    uint8_t contentType;
-
-    /* AES-GCM parameters */
-    uint8_t aesNonce[12];
-    uint8_t authTag[16];
-
-    /* Variable-length ciphertext */
-    uint8_t ciphertext[];
-} Envelope;
-
-
-/* ---------------------------------------------------------
-   2. MESSAGE ID (DEDUPLICATION KEY)
---------------------------------------------------------- */
-
-/*
-Computed by relay:
-
-message_id = SHA-256(
-    senderPublicKey ||
-    recipientPublicKey ||
-    nonce
-);
-*/
-
-
-/* ---------------------------------------------------------
-   3. POST /envelope
---------------------------------------------------------- */
-
-POST /envelope?
-
-Request body:
-    Envelope (raw binary)
-
-Server behavior:
-
-- Validate:
-    senderPublicKey size = 32
-    recipientPublicKey size = 32
-    nonce size = 32
-    timestamp within allowed bounds:
-        (now - MAX_AGE) <= timestamp <= (now + 300)
-
-- Compute message_id
-- If message_id exists → ignore (idempotent)
-- Store envelope
-- If forward=1 → async send to federated peers
-
-Response:
-    200 OK
-
-
-/* ---------------------------------------------------------
-   4. GET /envelope
---------------------------------------------------------- */
-
-GET /envelope?pubkey=<hex>&cursor=<uint64 optional>
-
-Behavior:
-
-- cursor default = 0
-- find envelope where:
-      recipientPublicKey == pubkey
-      AND timestamp > cursor
-
-- return OLDEST matching envelope
-
-Response:
-
-If found:
-    Content-Type: application/octet-stream
-    Body: Envelope (raw binary)
-
-If none:
-    204 No Content
-
-
-/* ---------------------------------------------------------
-   5. RULES
---------------------------------------------------------- */
-
-/*
-- Server NEVER decrypts ciphertext
-- Server NEVER interprets contentType
-- Server NEVER trusts timestamp beyond sanity check
-- nonce MUST be unique per sender-recipient pair
-- message_id is deterministic and used for deduplication
-- Envelope format is identical across all relays
-*/

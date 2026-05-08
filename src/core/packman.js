@@ -138,7 +138,7 @@ class PackMan {
     const uuid = r.bytes(this.SIZES.UUID);
     const sender_public_key = r.bytes(this.SIZES.PUBKEY);
     const recipient_public_key = r.bytes(this.SIZES.PUBKEY);
-    const timestamp = Number(r.u64());
+    const timestamp = r.u64();
     const content_type = r.u8();
     const payload_size = r.u32();
 
@@ -155,7 +155,7 @@ class PackMan {
     }
 
     // ---- PAYLOAD ----
-    const aes_nonce = r.bytes(this.SIZES.NONCE);
+    const aes_gcm_iv = r.bytes(this.SIZES.NONCE);
 
     const ciphertextLength =
       payload_size - this.SIZES.NONCE - this.SIZES.TAG;
@@ -171,7 +171,7 @@ class PackMan {
       throw new Error("Trailing data detected");
     }
 
-    return {
+    return Object.freeze({
       version,
       uuid,
       sender_public_key,
@@ -179,10 +179,10 @@ class PackMan {
       timestamp,
       content_type,
       payload_size,
-      aes_nonce,
+      aes_gcm_iv,
       ciphertext,
       auth_tag,
-    };
+    });
   }
 
   // =========================
@@ -210,7 +210,7 @@ class PackMan {
     w.u32(payload_size);
 
     // ---- PAYLOAD ----
-    w.bytes(obj.aes_nonce, this.SIZES.NONCE);
+    w.bytes(obj.aes_gcm_iv, this.SIZES.NONCE);
     w.bytes(obj.ciphertext);
     w.bytes(obj.auth_tag, this.SIZES.TAG);
 
@@ -226,19 +226,27 @@ class PackMan {
     this._expectBytes(obj.uuid, this.SIZES.UUID, "uuid");
     this._expectBytes(obj.sender_public_key, this.SIZES.PUBKEY, "sender_public_key");
     this._expectBytes(obj.recipient_public_key, this.SIZES.PUBKEY, "recipient_public_key");
-    this._expectBytes(obj.aes_nonce, this.SIZES.NONCE, "aes_nonce");
+    this._expectBytes(obj.aes_gcm_iv, this.SIZES.NONCE, "aes_gcm_iv");
     this._expectBytes(obj.auth_tag, this.SIZES.TAG, "auth_tag");
 
     if (!(obj.ciphertext instanceof Uint8Array)) {
       throw new Error("ciphertext must be Uint8Array");
     }
 
-    if (typeof obj.timestamp !== "number") {
-      throw new Error("timestamp must be number");
+    if (
+      typeof obj.timestamp !== "bigint" ||
+      obj.timestamp < 0n ||
+      obj.timestamp > 0xFFFFFFFFFFFFFFFFn
+    ) {
+      throw new Error("timestamp must be uint64");
     }
 
-    if (typeof obj.content_type !== "number") {
-      throw new Error("content_type must be number");
+    if (
+      !Number.isInteger(obj.content_type) ||
+      obj.content_type < 0 ||
+      obj.content_type > 255
+    ) {
+      throw new Error("content_type must be uint8");
     }
   }
 

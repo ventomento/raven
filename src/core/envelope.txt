@@ -1,6 +1,33 @@
 ENCRYPTED ENVELOPE FORMAT (VERSION 1)
 
-All multi-byte integers are encoded in big-endian (network byte order).
+----------------------------------------------------------------------
+BYTE ORDER AND ENCODING RULES
+----------------------------------------------------------------------
+
+All structured integer fields MUST be encoded in big-endian
+(network byte order).
+
+Single-byte integer fields do not require byte-order conversion.
+
+Opaque byte sequences MUST be transmitted exactly as defined by
+their respective specifications and MUST NOT be byte-swapped,
+reordered, or endian-converted.
+
+Examples of opaque byte sequences include:
+
+- UUID byte arrays
+- X25519 public keys
+- AES-GCM IVs/nonces
+- Ciphertext
+- Authentication tags
+
+X25519 public keys are encoded exactly as specified by RFC 7748:
+
+- 32-byte Montgomery u-coordinate
+- little-endian byte encoding
+
+The RFC7748 encoding is intrinsic to the key format itself and MUST
+remain unchanged during envelope serialization.
 
 ----------------------------------------------------------------------
 OVERVIEW
@@ -9,62 +36,205 @@ OVERVIEW
 This format defines a binary envelope for transporting encrypted messages.
 
 - The header is UNTRUSTED metadata and MUST NOT be used for security decisions
-- The payload is protected using AES-GCM and provides confidentiality and integrity
-- No cryptographic binding exists between header and payload
+- The payload is protected using AES-256-GCM and provides confidentiality and integrity
 - Transport layer is responsible for authentication, rate limiting, and admission control
 
-----------------------------------------------------------------------  
+----------------------------------------------------------------------
 HEADER (FIXED SIZE)
 ----------------------------------------------------------------------
 
 FIELD NAME              SIZE (BYTES)    TYPE        DESCRIPTION
 
-version                 1               uint8       Protocol version (MUST be 0x01)
+version                 1               uint8       Protocol version
+                                                    (MUST be 0x01)
 
-uuid                    16              bytes       UUID (RFC 4122 format, opaque identifier)
+uuid                    16              bytes       UUID (RFC 4122 format,
+                                                    opaque identifier)
 
-sender_public_key       32              bytes       Ed25519 public key (RFC 8032 format)
+sender_public_key       32              bytes       X25519 public key
+                                                    RFC7748 Montgomery
+                                                    u-coordinate encoding
+                                                    (little-endian)
 
-recipient_public_key    32              bytes       Ed25519 public key (RFC 8032 format)
+recipient_public_key    32              bytes       X25519 public key
+                                                    RFC7748 Montgomery
+                                                    u-coordinate encoding
+                                                    (little-endian)
 
-timestamp               8               uint64      UTC timestamp (seconds since Unix epoch)
+timestamp               8               uint64      UTC timestamp
+                                                    (seconds since Unix epoch)
 
-content_type            1               uint8       Application-defined payload type hint
+content_type            1               uint8       Application-defined
+                                                    payload type hint
 
-payload_size            4               uint32      Size of encrypted payload section (bytes)
+payload_size            4               uint32      Size of encrypted
+                                                    payload section (bytes)
 
 TOTAL HEADER SIZE: 94 bytes
 
-----------------------------------------------------------------------  
+----------------------------------------------------------------------
 ENCRYPTED PAYLOAD (VARIABLE SIZE)
 ----------------------------------------------------------------------
 
-The payload section immediately follows the header and has length = payload_size.
+The payload section immediately follows the header and has
+length = payload_size.
 
 FIELD NAME              SIZE (BYTES)    TYPE        DESCRIPTION
 
-aes_nonce               12              bytes       AES-GCM nonce (MUST be unique per key)
+aes_gcm_iv              12              bytes       AES-GCM IV/nonce
+                                                    (MUST be unique per key)
 
-ciphertext              variable        bytes       Encrypted payload
+ciphertext              variable        bytes       AES-256-GCM
+                                                    encrypted payload
 
-auth_tag                16              bytes       AES-GCM authentication tag
+auth_tag                16              bytes       AES-GCM
+                                                    authentication tag
 
-----------------------------------------------------------------------  
+
+
+Notes:
+
+----------------------------------------------------------------------
+FIELD SERIALIZATION RULES
+----------------------------------------------------------------------
+
+version
+
+    Type:
+        uint8
+
+    Serialization:
+        Single-byte integer.
+        No byte-order conversion required.
+
+----------------------------------------------------------------------
+
+uuid
+
+    Type:
+        16-byte opaque buffer
+
+    Serialization:
+        MUST be treated as an opaque byte sequence.
+        MUST NOT be endian-converted or reordered.
+
+----------------------------------------------------------------------
+
+sender_public_key
+
+    Type:
+        32-byte X25519 public key
+
+    Serialization:
+        MUST be treated as an opaque byte sequence.
+
+        Internally encoded according to RFC7748:
+        little-endian Montgomery u-coordinate encoding.
+
+        MUST NOT be byte-swapped or converted to network order.
+
+----------------------------------------------------------------------
+
+recipient_public_key
+
+    Type:
+        32-byte X25519 public key
+
+    Serialization:
+        MUST be treated as an opaque byte sequence.
+
+        Internally encoded according to RFC7748:
+        little-endian Montgomery u-coordinate encoding.
+
+        MUST NOT be byte-swapped or converted to network order.
+
+----------------------------------------------------------------------
+
+timestamp
+
+    Type:
+        uint64
+
+    Serialization:
+        MUST be encoded in big-endian
+        (network byte order).
+
+----------------------------------------------------------------------
+
+content_type
+
+    Type:
+        uint8
+
+    Serialization:
+        Single-byte integer.
+        No byte-order conversion required.
+
+----------------------------------------------------------------------
+
+payload_size
+
+    Type:
+        uint32
+
+    Serialization:
+        MUST be encoded in big-endian
+        (network byte order).
+
+----------------------------------------------------------------------
+
+aes_gcm_iv
+
+    Type:
+        12-byte opaque buffer
+
+    Serialization:
+        MUST be treated as an opaque byte sequence.
+        MUST NOT be endian-converted.
+
+----------------------------------------------------------------------
+
+ciphertext
+
+    Type:
+        Variable-length opaque buffer
+
+    Serialization:
+        MUST be treated as an opaque byte sequence.
+        MUST NOT be endian-converted.
+
+----------------------------------------------------------------------
+
+auth_tag
+
+    Type:
+        16-byte opaque buffer
+
+    Serialization:
+        MUST be treated as an opaque byte sequence.
+        MUST NOT be endian-converted.
+
+----------------------------------------------------------------------
 CONSTRAINTS
 ----------------------------------------------------------------------
 
 - payload_size MUST be >= 28
+
 - payload_size MUST equal:
-    12 (aes_nonce) + len(ciphertext) + 16 (auth_tag)
+    12 (aes_gcm_iv) + len(ciphertext) + 16 (auth_tag)
 
 - ciphertext length MUST be:
     payload_size - 28
 
-- aes_nonce MUST be unique per encryption key
+- aes_gcm_iv MUST be unique per encryption key
 
-/* ---------------------------------------------------------
-   1. CONTENT TYPE
---------------------------------------------------------- */
+- sender_public_key MUST be exactly 32 bytes
+
+- recipient_public_key MUST be exactly 32 bytes
+
+----------------------------------------------------------------------
+CONTENT TYPES
+----------------------------------------------------------------------
 
 typedef uint8_t ContentType;
 
