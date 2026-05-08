@@ -133,20 +133,4 @@ export class Identity {
     );
   }
 
-  // =========================================
-  // EXPORT RAW PUBLIC BYTES
-  // Envelope usage
-  // =========================================
-
-  async exportPublicBytes() {
-
-    const raw =
-      await crypto.subtle.exportKey(
-        "raw",
-        this.publicKey
-      );
-
-    return new Uint8Array(raw);
-  }
-
 }
