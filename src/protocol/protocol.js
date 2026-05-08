@@ -1,6 +1,6 @@
 // src/protocol/protocol.js
 
-import { importPublicKey, deriveSharedSecret, exportPublicKeyBytes } from "../crypto/x25519.js";
+import { importPublicKey, deriveSharedSecret, exportPublicKeyBytes  } from "../crypto/x25519.js";
 import { deriveAesKey } from "../crypto/kdf.js";
 import { encryptAesGcm, decryptAesGcm } from "../crypto/aes-gcm.js";
 import { randomIV } from "../crypto/random.js";
@@ -9,6 +9,7 @@ import { encodePlaintext, decodePlaintext } from "../encoding/plaintext.js";
 import { bytesToHex } from "../encoding/hex.js";
 import { Serializer } from "../envelope/serializer.js";
 import {ContentTypes} from "../envelope/content-types.js";
+import { Identity } from "../identity/identity.js";
 
 async function _encrypt({privateKey, publicKey, bytes}){
 
@@ -34,50 +35,36 @@ async function _encrypt({privateKey, publicKey, bytes}){
   return {iv, ciphertext, auth_tag};
 }
 
-
 export async function encryptMessage({
-  sender, // is an identity
+  sender, // Identity: holds imported identity. That is private and public key pair.
   recipientPublicKeyHex,
   plaintext,
   contentType = ContentTypes.TEXT_UTF8}){
 
-  require(sender);
-  require(recipientPublicKey, "string");
+  require(senderPrivateKey, Identity);
+  require(recipientPublicKeyHex, "string");
   require(plaintext);
   require(contentType);
 
-  const recipientPublicKey = await importPublicKey(
-      recipientPublicKeyHex
-    );
+  const recipientPublicKey = await importPublicKey(recipientPublicKeyHex);
   
   plaintextBytes = encodePlaintext(plaintext);
 
   const {iv, ciphertext, auth_tag} = 
     await _encrypt({
-      privateKey : sender.privateKey,
+      privateKey : senderPrivateKey,
       publicKey : recipientPublicKey,
       bytes : plaintextBytes 
       })
 
   // ==========================================================
-  // EXPORT PUBLIC KEYS
-  // ==========================================================
-
-  const sender_public_key =
-    await exportPublicKeyBytes(sender.publicKey);
-
-  const recipient_public_key = 
-    await exportPublicKeyBytes(recipientPublicKey);
-
-  // ==========================================================
   // BUILD ENVELOPE
   // ==========================================================
-
   const envelope = {
     version: 0x01,
     uuid: generateUuidBytes(),
-    sender_public_key,
-    recipient_public_key,
+    sender_public_key: await exportPublicKeyBytes(sender.publicKey),
+    recipient_public_key: await exportPublicKeyBytes(recipientPublicKey),
     timestamp:
       BigInt(
         Math.floor(Date.now() / 1000)
@@ -95,11 +82,7 @@ export async function encryptMessage({
   // ==========================================================
   // SERIALIZE
   // ==========================================================
-
-  const buffer =
-    Serializer.pack(envelope);
-
-  return buffer
+  return Serializer.pack(envelope);
 }
 
 async function _decrypt({privateKey, publicKey, envelope}){
@@ -119,43 +102,34 @@ async function _decrypt({privateKey, publicKey, envelope}){
     await decryptAesGcm({
       key: aesKey,
       iv: envelope.aes_gcm_iv,
-      ciphertext:
-        envelope.ciphertext,
-      auth_tag:
-        envelope.auth_tag
+      ciphertext: envelope.ciphertext,
+      auth_tag: envelope.auth_tag
     });
 
   return plaintext;
 }
 
-export async function decryptEvelopeBuffer({
+export async function decryptEnvelopeBytes({
   recipient,
   envelopeBuffer
 }) {
 
-  require(recipient);
-  require(envelopeBuffer, ArrayBuffer)
+  require(recipient, Identity);
+  require(envelopeBuffer, ArrayBuffer);
 
   const envelope = await Serializer.unpack(
       envelopeBuffer
     );
 
-  const senderPublicKeyHex =
-    bytesToHex(envelope.sender_public_key);
-
-  const senderPublicKey =
-    await importPublicKey(envelope.sender_public_key);
-
-  const plaintext = _decrypt({
+  let plaintext = _decrypt({
     privateKey: recipient.privateKey,
-    publicKey: senderPublicKey,
+    publicKey: await importPublicKey(envelope.sender_public_key),
     envelope: envelope
   })
-
   plaintext = decodePlaintext(plaintext);  
 
   return Object.freeze({
-    senderPublicKeyHex,
+    senderPublicKeyHex: bytesToHex(envelope.sender_public_key),
     contentType: envelope.content_type,
     plaintext,
   });
