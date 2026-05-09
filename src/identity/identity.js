@@ -4,10 +4,36 @@ import {
   generateKeyPair,
   importPrivateKey,
   exportPrivateKey,
-  exportPublicKey
+  exportPublicKey,
+  importPublicKey,
+  derivePublicKeyFromPrivate
 } from "../crypto/x25519.js";
 
-export class Identity {
+export class PublicIdentity {
+
+  constructor(publicKey){
+
+    if (!publicKey instanceof CryptoKey){
+      throw new Error("publicKey must be cryptokey");
+    }
+    
+    if (publicKey.type !== "public") {
+      throw new Error(
+        "publicKey must be public"
+      );
+    }
+    
+    this.publicKey = publicKey;
+    Object.freeze(this);
+  }
+
+  static async fromPublicHex(publicKeyHex){
+    const publicKey = importPublicKey(publicKeyHex);
+    return new PublicIdentity(publicKey);
+  }
+}
+
+export class PrivateIdentity {
 
   constructor({
     privateKey,
@@ -53,7 +79,7 @@ export class Identity {
     const pair =
       await generateKeyPair();
 
-    return new Identity({
+    return new PrivateIdentity({
       privateKey: pair.privateKey,
       publicKey: pair.publicKey
     });
@@ -75,37 +101,10 @@ export class Identity {
       );
     }
 
-    const privateKey =
-      await importPrivateKey(
-        privateKeyHex
-      );
+    const privateKey = await importPrivateKey(privateKeyHex);
+    const publicKey = await derivePublicKeyFromPrivate(privateKey);
 
-    // Derive public key from private key
-    // using JWK export trick
-
-    const jwk =
-      await crypto.subtle.exportKey(
-        "jwk",
-        privateKey
-      );
-
-    const publicKey =
-      await crypto.subtle.importKey(
-        "jwk",
-        {
-          kty: "OKP",
-          crv: "X25519",
-          x: jwk.x,
-          ext: true
-        },
-        {
-          name: "X25519"
-        },
-        true,
-        []
-      );
-
-    return new Identity({
+    return new PrivateIdentity({
       privateKey,
       publicKey
     });

@@ -1,136 +1,176 @@
 // src/protocol/protocol.js
 
-import { importPublicKey, deriveSharedSecret, exportPublicKeyBytes  } from "../crypto/x25519.js";
+import {
+  importPublicKey,
+  exportPublicKeyBytes,
+  deriveSharedSecret,
+} from "../crypto/x25519.js";
+
 import { deriveAesKey } from "../crypto/kdf.js";
-import { encryptAesGcm, decryptAesGcm } from "../crypto/aes-gcm.js";
+
+import {
+  encryptAesGcm,
+  decryptAesGcm,
+} from "../crypto/aes-gcm.js";
+
 import { randomIV } from "../crypto/random.js";
+
 import { generateUuidBytes } from "../encoding/uuid.js";
-import { encodePlaintext, decodePlaintext } from "../encoding/plaintext.js";
+import { encodePlaintext } from "../encoding/plaintext.js";
+import { decodeUtf8 } from "../encoding/utf8.js";
 import { bytesToHex } from "../encoding/hex.js";
+
 import { Serializer } from "../envelope/serializer.js";
-import {ContentTypes} from "../envelope/content-types.js";
-import { Identity } from "../identity/identity.js";
+import { ContentTypes } from "../envelope/content-types.js";
 
-async function _encrypt({privateKey, publicKey, bytes}){
+import {
+  PublicIdentity,
+  PrivateIdentity,
+} from "../identity/identity.js";
 
-  const sharedSecret =
-    await deriveSharedSecret(
-      privateKey,
-      publicKey
+import { require } from "../util/util.js";
+
+// ============================================================
+// INTERNAL CRYPTO
+// ============================================================
+
+async function encryptBytes({
+  senderPrivateKey,
+  recipientPublicKey,
+  plaintextBytes,
+}) {
+  const sharedSecret = await deriveSharedSecret(
+      senderPrivateKey,
+      recipientPublicKey
     );
- 
-  const aesKey =
-    await deriveAesKey(
-      sharedSecret
-    );
-
+  const aesKey = await deriveAesKey(sharedSecret);
   const iv = randomIV();
 
-  const {ciphertext, auth_tag } = await encryptAesGcm({
-    key: aesKey,
-    iv,
-    plaintext: bytes
-  });
-
-  return {iv, ciphertext, auth_tag};
-}
-
-export async function encryptMessage({
-  sender, // Identity: holds imported identity. That is private and public key pair.
-  recipientPublicKeyHex,
-  plaintext,
-  contentType = ContentTypes.TEXT_UTF8}){
-
-  require(senderPrivateKey, Identity);
-  require(recipientPublicKeyHex, "string");
-  require(plaintext);
-  require(contentType);
-
-  const recipientPublicKey = await importPublicKey(recipientPublicKeyHex);
-  
-  plaintextBytes = encodePlaintext(plaintext);
-
-  const {iv, ciphertext, auth_tag} = 
-    await _encrypt({
-      privateKey : senderPrivateKey,
-      publicKey : recipientPublicKey,
-      bytes : plaintextBytes 
-      })
-
-  // ==========================================================
-  // BUILD ENVELOPE
-  // ==========================================================
-  const envelope = {
-    version: 0x01,
-    uuid: generateUuidBytes(),
-    sender_public_key: await exportPublicKeyBytes(sender.publicKey),
-    recipient_public_key: await exportPublicKeyBytes(recipientPublicKey),
-    timestamp:
-      BigInt(
-        Math.floor(Date.now() / 1000)
-      ),
-    content_type: contentType,
-    payload_size:
-      12 +
-      ciphertext.length +
-      16,
-    aes_gcm_iv: iv,
-    ciphertext,
-    auth_tag
-  };
-
-  // ==========================================================
-  // SERIALIZE
-  // ==========================================================
-  return Serializer.pack(envelope);
-}
-
-async function _decrypt({privateKey, publicKey, envelope}){
-  
-  const sharedSecret =
-    await deriveSharedSecret(
-      privateKey,
-      publicKey
-    );
-
-  const aesKey =
-    await deriveAesKey(
-      sharedSecret
-    );
-
-  const plaintext =
-    await decryptAesGcm({
+  const { ciphertext, auth_tag } = await encryptAesGcm({
       key: aesKey,
-      iv: envelope.aes_gcm_iv,
-      ciphertext: envelope.ciphertext,
-      auth_tag: envelope.auth_tag
+      iv,
+      plaintext: plaintextBytes,
     });
 
-  return plaintext;
+  return { iv, ciphertext, auth_tag };
 }
 
-export async function decryptEnvelopeBytes({
+async function decryptBytes({
+  recipientPrivateKey,
+  senderPublicKey,
+  envelope,
+}) {
+  const sharedSecret = await deriveSharedSecret(
+      recipientPrivateKey,
+      senderPublicKey
+    );
+  const aesKey = await deriveAesKey(sharedSecret);
+
+  return decryptAesGcm({
+    key: aesKey,
+    iv: envelope.aes_gcm_iv,
+    ciphertext: envelope.ciphertext,
+    auth_tag: envelope.auth_tag,
+  });
+}
+
+// ============================================================
+// ENVELOPE LAYER
+// ============================================================
+
+export async function createEncryptedEnvelope({
+  sender,
   recipient,
-  envelopeBuffer
+  plaintext,
+  contentType = ContentTypes.TEXT_UTF8,
 }) {
 
-  require(recipient, Identity);
-  require(envelopeBuffer, ArrayBuffer);
+  const plaintextBytes = encodePlaintext(plaintext);
 
-  const envelope = await Serializer.unpack(
-      envelopeBuffer
-    );
+  const { iv, ciphertext, auth_tag } = await encryptBytes({
+      senderPrivateKey: sender.privateKey,
+      recipientPublicKey: recipient.publicKey,
+      plaintextBytes,
+    });
 
-  let plaintext = _decrypt({
-    privateKey: recipient.privateKey,
-    publicKey: await importPublicKey(envelope.sender_public_key),
-    envelope: envelope
-  })
-  plaintext = decodePlaintext(plaintext);  
+  return Object.freeze({
+    version: Serializer.VERSION,
+    uuid: generateUuidBytes(),
+    sender_public_key: await exportPublicKeyBytes(sender.publicKey),
+    recipient_public_key: await exportPublicKeyBytes(recipient.publicKey),
+    timestamp: BigInt(Math.floor(Date.now() / 1000)),
+    content_type: contentType,
+    aes_gcm_iv: iv,
+    ciphertext,
+    auth_tag,
+  });
+}
+
+export async function decryptEnvelope({
+  recipient,
+  envelope,
+}) {
+  require(recipient, PrivateIdentity);
+
+  const senderPublicKey = await importPublicKey(
+    envelope.sender_public_key
+  );
+
+  let plaintext = await decryptBytes({
+    recipientPrivateKey: recipient.privateKey,
+    senderPublicKey,
+    envelope,
+  });
+
+  if (envelope.content_type === ContentTypes.TEXT_UTF8) {
+    plaintext = decodeUtf8(plaintext);
+  }
 
   return Object.freeze({
     senderPublicKeyHex: bytesToHex(envelope.sender_public_key),
     contentType: envelope.content_type,
     plaintext,
+    timestamp: envelope.timestamp,
+    uuid: bytesToHex(envelope.uuid),
+  });
+}
+
+// ============================================================
+// HIGH-LEVEL API
+// ============================================================
+
+export async function encrypt({
+  sender,
+  recipient,
+  plaintext,
+  contentType = ContentTypes.TEXT_UTF8,
+}) {
+  require(sender, PrivateIdentity);
+  require(recipient, PublicIdentity);
+  require(plaintext);
+  require(contentType);
+
+  const envelope =
+    await createEncryptedEnvelope({
+      sender,
+      recipient,
+      plaintext,
+      contentType,
+    });
+
+  return Serializer.pack(envelope);
+}
+
+export async function decrypt({
+  recipient,
+  encrypted,
+}) {
+  require(encrypted, ArrayBuffer);
+
+  const envelope = Serializer.unpack(encrypted);
+
+  return decryptEnvelope({
+    recipient,
+    envelope,
   });
 }

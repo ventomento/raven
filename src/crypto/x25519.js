@@ -149,6 +149,35 @@ export async function deriveSharedSecret(
   return shared;
 }
 
+export async function derivePublicKeyFromPrivate(privateKey){
+  // Derive public key from private key
+  // using JWK export trick
+
+  const jwk =
+    await crypto.subtle.exportKey(
+      "jwk",
+      privateKey
+    );
+
+  const publicKey =
+    await crypto.subtle.importKey(
+      "jwk",
+      {
+        kty: "OKP",
+        crv: "X25519",
+        x: jwk.x,
+        ext: true
+      },
+      {
+        name: "X25519"
+      },
+      true,
+      []
+    );
+
+  return publicKey;
+}
+
 
 /* Notes:
 X25519 public keys are intentionally not fully validated at import time. 

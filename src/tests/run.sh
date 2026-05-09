@@ -1,1 +1,0 @@
-node --test tests/*.test.js

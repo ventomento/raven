@@ -112,21 +112,11 @@ export class Serializer {
     MIN_PAYLOAD: 28,
   };
 
-  // =========================
-  // PUBLIC: UNPACK RESPONSE
-  // =========================
-  static async unpack(response) {
-    if (!response || typeof response.arrayBuffer !== "function") {
-      throw new Error("Invalid Response");
-    }
-    const buffer = await response.arrayBuffer();
-    return this.unpackBuffer(buffer);
-  }
 
   // =========================
   // PUBLIC: UNPACK BUFFER
   // =========================
-  static unpackBuffer(buffer) {
+  static unpack(buffer) {
     const r = new BinaryReader(buffer);
 
     // ---- HEADER ----

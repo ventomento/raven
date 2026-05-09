@@ -1,13 +1,11 @@
 // src/encoding/utf8.js
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-
 export function encodeUtf8(str) {
   if (typeof str !== "string") {
     throw new TypeError("Expected string");
   }
 
+  const encoder = new TextEncoder();
   return encoder.encode(str);
 }
 
@@ -16,5 +14,6 @@ export function decodeUtf8(bytes) {
     throw new TypeError("Expected Uint8Array");
   }
 
+  const decoder = new TextDecoder();
   return decoder.decode(bytes);
 }

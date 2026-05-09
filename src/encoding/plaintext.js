@@ -1,11 +1,10 @@
-import { encodeUtf8, decodeUtf8 } from "./utf8";
+import { encodeUtf8 } from "./utf8.js";
 
 export function encodePlaintext(plaintext){
   let plaintextBytes;
 
   if (typeof plaintext === "string") {
-    plaintextBytes =
-      encodeUtf8(plaintext);
+    plaintextBytes = encodeUtf8(plaintext);
       
   } else if (plaintext instanceof Uint8Array ) {
     plaintextBytes = plaintext;
@@ -18,20 +17,4 @@ export function encodePlaintext(plaintext){
   }
 
   return plaintextBytes;
-}
-
-export function decodePlaintext(plaintext){
-  let data = plaintext;
-
-  if (
-    envelope.content_type ===
-    ContentTypes.TEXT_UTF8
-  ) {
-
-    data = decodeUtf8(
-      plaintext
-    );
-  }
-
-  return data;
 }

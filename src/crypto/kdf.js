@@ -1,5 +1,3 @@
-// src/crypto/kdf.js
-
 import { sha256 } from "./hash.js";
 
 export async function deriveAesKey(sharedSecret) {
