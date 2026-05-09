@@ -1,0 +1,485 @@
+RFC: Secure Messaging Envelope Relay Protocol (SMERP)
+Version: 1
+
+======================================================================
+1. OVERVIEW
+======================================================================
+
+SMERP defines a decentralized relay protocol for transporting SMEP
+encrypted envelopes between clients and relay servers.
+
+The protocol is intentionally simple:
+
+- Clients may use any number of relay servers
+- Relay servers may federate with other relay servers
+- Envelopes are immutable binary blobs
+- Relay servers forward exact envelope copies
+- Delivery is best-effort
+- No central authority exists
+
+SMERP does NOT define:
+
+- Global consensus
+- Guaranteed delivery
+- Global ordering
+- Identity verification
+- Reputation systems
+- Spam prevention
+- Transport authentication
+- Replay prevention
+
+Relay servers independently determine:
+
+- Storage policy
+- Retention policy
+- Federation policy
+- Access control policy
+- Rate limiting policy
+- Moderation policy
+
+======================================================================
+2. TERMINOLOGY
+======================================================================
+
+Client
+
+    Software that creates, sends, receives, decrypts, and displays
+    envelopes.
+
+Relay Server
+
+    Server implementing the SMERP relay API.
+
+Federation
+
+    A relay-to-relay forwarding relationship.
+
+Envelope
+
+    Binary SMEP encrypted envelope.
+
+Identity
+
+    X25519 public key encoded as lowercase hexadecimal.
+
+Conversation
+
+    Ordered collection of envelopes exchanged between exactly two
+    identities.
+
+======================================================================
+3. ARCHITECTURE
+======================================================================
+
+The network consists of:
+
+- Clients
+- Relay servers
+- Relay federations
+
+Clients communicate with relay servers.
+
+Relay servers MAY communicate with other relay servers.
+
+Clients are NOT bound to any single relay server.
+
+A client MAY:
+
+- Add relay servers
+- Remove relay servers
+- Query multiple relay servers simultaneously
+- Post envelopes to multiple relay servers
+
+Relay servers MAY:
+
+- Operate independently
+- Participate in federation
+- Refuse federation
+- Filter envelopes
+- Archive envelopes
+- Delete envelopes
+
+======================================================================
+4. CLIENT MODEL
+======================================================================
+
+----------------------------------------------------------------------
+4.1 CLIENT IDENTITY
+----------------------------------------------------------------------
+
+A client identity is an X25519 public/private keypair as defined by
+the SMEP cryptographic specification.
+
+The public key:
+
+- Functions as the messaging address
+- Identifies the inbox recipient
+
+The private key:
+
+- Decrypts envelopes
+- Functions as persistent login credentials
+
+----------------------------------------------------------------------
+4.2 CLIENT SERVER LIST
+----------------------------------------------------------------------
+
+Clients maintain a mutable list of relay servers.
+
+Clients MAY:
+
+- Add servers
+- Remove servers
+- Reorder server priority
+- Use different servers for send and receive
+
+The relay list is entirely client-controlled.
+
+No relay server is authoritative.
+
+----------------------------------------------------------------------
+4.3 CLIENT CONVERSATION MODEL
+----------------------------------------------------------------------
+
+Clients organize envelopes into conversations.
+
+A conversation is defined as:
+
+    pair(localPublicKey, remotePublicKey)
+
+Where:
+
+- localPublicKey is the client identity
+- remotePublicKey is another participant identity
+
+The client MUST group all envelopes where:
+
+    sender == local AND recipient == remote
+
+OR
+
+    sender == remote AND recipient == local
+
+into the same conversation.
+
+A conversation therefore contains:
+
+- Sent envelopes
+- Received envelopes
+
+ordered by timestamp.
+
+----------------------------------------------------------------------
+4.4 CLIENT MESSAGE INDEX
+----------------------------------------------------------------------
+
+Clients SHOULD maintain a local index of:
+
+- Known public identities
+- Sent envelopes
+- Received envelopes
+- Envelope timestamps
+- Relay synchronization state
+
+The protocol does NOT require any specific local storage model.
+
+======================================================================
+5. RELAY SERVER MODEL
+======================================================================
+
+----------------------------------------------------------------------
+5.1 RELAY RESPONSIBILITY
+----------------------------------------------------------------------
+
+Relay servers transport and optionally store envelopes.
+
+Relay servers are NOT trusted entities.
+
+Relay servers:
+
+- Cannot decrypt payloads
+- Cannot modify encrypted payloads safely
+- MUST forward envelopes unchanged
+
+----------------------------------------------------------------------
+5.2 RELAY STORAGE POLICY
+----------------------------------------------------------------------
+
+Storage policy is implementation-defined.
+
+Relay servers MAY:
+
+- Archive envelopes permanently
+- Delete envelopes after delivery
+- Delete envelopes after expiration
+- Operate as temporary queues
+- Operate as historical archives
+
+The protocol does NOT mandate retention behavior.
+
+----------------------------------------------------------------------
+5.3 RELAY ACCESS CONTROL
+----------------------------------------------------------------------
+
+Access control is implementation-defined.
+
+Relay servers MAY:
+
+- Require authentication
+- Allow anonymous posting
+- Restrict reads
+- Restrict writes
+- Apply rate limits
+- Reject envelopes
+
+The protocol does NOT define authorization semantics.
+
+======================================================================
+6. RELAY FEDERATION
+======================================================================
+
+----------------------------------------------------------------------
+6.1 FEDERATION MODEL
+----------------------------------------------------------------------
+
+Relay servers MAY federate with other relay servers.
+
+Federation is voluntary.
+
+Each relay server maintains a federation list containing relay peers.
+
+----------------------------------------------------------------------
+6.2 ENVELOPE FORWARDING
+----------------------------------------------------------------------
+
+When a relay server receives a new envelope it MAY forward exact copies
+of that envelope to federation peers.
+
+Forwarded envelopes MUST remain byte-identical.
+
+Relay servers MUST NOT:
+
+- Rewrite headers
+- Modify payloads
+- Re-encrypt envelopes
+- Change timestamps
+- Change UUIDs
+
+Federation therefore propagates immutable envelopes through the relay
+network.
+
+----------------------------------------------------------------------
+6.3 DELIVERY MODEL
+----------------------------------------------------------------------
+
+SMERP uses a best-effort propagation model.
+
+The protocol does NOT guarantee:
+
+- Delivery
+- Ordering
+- Availability
+- Replication
+- Persistence
+
+An envelope MAY:
+
+- Reach many relays
+- Reach one relay
+- Reach no additional relays
+
+Clients SHOULD use multiple relay servers for redundancy.
+
+----------------------------------------------------------------------
+6.4 DUPLICATE ENVELOPES
+----------------------------------------------------------------------
+
+Federation MAY produce duplicate envelopes.
+
+Clients and relay servers SHOULD deduplicate envelopes using the UUID
+field.
+
+======================================================================
+7. CLIENT-RELAY API
+======================================================================
+
+----------------------------------------------------------------------
+7.1 POST ENVELOPE
+----------------------------------------------------------------------
+
+Clients send envelopes to relay servers using:
+
+    POST /envelope
+
+Request body:
+
+    Raw binary SMEP envelope
+
+Content-Type:
+
+    application/octet-stream
+
+The relay server MAY:
+
+- Store the envelope
+- Reject the envelope
+- Forward the envelope to federation peers
+
+Successful acceptance SHOULD return:
+
+    HTTP 200
+    HTTP 201
+    HTTP 202
+
+----------------------------------------------------------------------
+7.2 GET ENVELOPE
+----------------------------------------------------------------------
+
+Clients request envelopes using:
+
+    GET /envelope
+
+Query parameters:
+
+    recipient=<hex_public_key>
+    unix_date=<unix_timestamp>
+
+Example:
+
+    GET /envelope?
+        recipient=ab12cd...
+        &unix_date=1710000000
+
+recipient
+
+    Recipient X25519 public key encoded as lowercase hexadecimal.
+
+unix_date
+
+    Timestamp cursor value.
+
+The relay server returns:
+
+- Zero envelopes
+- One envelope
+
+per request.
+
+Response body:
+
+    Raw binary SMEP envelope
+
+Content-Type:
+
+    application/octet-stream
+
+If no envelope is available the relay server MAY return:
+
+    HTTP 204
+    HTTP 404
+
+The protocol does NOT define whether envelopes are consumed after
+retrieval.
+
+That behavior is implementation-defined.
+
+======================================================================
+8. TIMESTAMP CURSOR MODEL
+======================================================================
+
+The unix_date parameter functions as a retrieval cursor.
+
+Relay servers SHOULD return envelopes where:
+
+    envelope.timestamp >= unix_date
+
+The precise ordering semantics are implementation-defined.
+
+unix_date uses:
+
+- Unix epoch time
+- UTC
+- Seconds resolution
+
+Millisecond resolution MAY be supported by implementation agreement.
+
+======================================================================
+9. ENVELOPE IMMUTABILITY
+======================================================================
+
+Envelopes are immutable binary objects.
+
+Relay servers and federation peers MUST forward envelopes exactly as
+received.
+
+The following fields MUST remain unchanged:
+
+- UUID
+- Sender public key
+- Recipient public key
+- Timestamp
+- Ciphertext
+- Authentication tag
+
+======================================================================
+10. CLIENT SYNCHRONIZATION MODEL
+======================================================================
+
+Clients synchronize by repeatedly querying relay servers for envelopes
+addressed to their public key.
+
+Typical synchronization flow:
+
+1. Client selects relay server
+2. Client submits GET request with recipient public key
+3. Relay returns one matching envelope
+4. Client decrypts envelope
+5. Client updates local conversation state
+6. Client advances timestamp cursor
+7. Client repeats polling process
+
+Clients MAY:
+
+- Poll multiple relays concurrently
+- Merge envelopes from multiple relays
+- Deduplicate envelopes locally
+
+======================================================================
+11. CONVERSATION DISCOVERY
+======================================================================
+
+Clients discover conversations implicitly through envelope exchange.
+
+When a client encounters an envelope:
+
+    sender=A
+    recipient=B
+
+The client:
+
+- Determines whether A or B is the local identity
+- Identifies the remote identity
+- Adds the remote identity to the conversation list if absent
+- Associates the envelope with the corresponding conversation
+
+Conversation lists are therefore emergent properties of envelope
+exchange.
+
+No global directory exists.
+
+======================================================================
+12. SECURITY NOTES
+======================================================================
+
+- Relay servers are untrusted transport intermediaries
+- Envelope confidentiality depends entirely on SMEP encryption
+- Relay servers can observe metadata
+- Relay servers can observe sender and recipient public keys
+- Relay servers can observe timestamps
+- Relay servers can delete envelopes
+- Relay servers can refuse federation
+- Relay servers can refuse storage
+- Relay servers can selectively censor traffic
+- Federation increases propagation reach but does NOT guarantee
+  delivery
+- Clients SHOULD use multiple relay servers for redundancy

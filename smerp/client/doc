@@ -1,0 +1,656 @@
+SMERP CLIENT LIBRARY
+ARCHITECTURE OVERVIEW
+Version: Draft 2
+
+======================================================================
+1. DESIGN GOALS
+======================================================================
+
+The SMERP client library is designed to be:
+
+- Simple
+- Stateless at transport layer
+- Decentralized
+- Storage-agnostic
+- UI-agnostic
+- Transport-agnostic
+- Efficient for binary envelope handling
+
+The client library acts as:
+
+- Synchronization engine
+- Relay coordinator
+- Envelope store
+- Conversation indexer
+- Decryption engine
+
+The library is NOT:
+
+- A UI framework
+- A networking framework
+- A persistence framework
+
+======================================================================
+2. REQUIRED SMERP ASSUMPTIONS
+======================================================================
+
+----------------------------------------------------------------------
+2.1 RELAY-LOCAL SEQUENCE IDS
+----------------------------------------------------------------------
+
+Each relay server MUST maintain a monotonically increasing local
+sequence ID assigned when the relay first accepts an envelope.
+
+Sequence IDs are:
+
+- Relay-local
+- Monotonic
+- Opaque
+- NOT globally ordered
+- NOT embedded into envelopes
+
+Sequence IDs are transport metadata only.
+
+----------------------------------------------------------------------
+2.2 SINGLE ENVELOPE RESPONSE MODEL
+----------------------------------------------------------------------
+
+Relay fetch requests return at most one envelope per request.
+
+This avoids introducing:
+
+- Envelope collection serialization formats
+- Multi-envelope binary framing
+- Additional deserialization protocols
+
+The relay response body is therefore either:
+
+- Empty
+- One binary SMEP envelope
+
+This allows direct reuse of SMEP envelope parsing logic.
+
+----------------------------------------------------------------------
+2.3 RELAY CURSOR TRANSPORT
+----------------------------------------------------------------------
+
+Relay-local sequence IDs SHOULD be transported using:
+
+- HTTP response headers
+OR
+- HTTP cookies
+
+Example:
+
+    X-SMERP-Sequence-Id: 182
+
+The client is responsible for:
+
+- Reading relay cursor metadata
+- Updating local relay state
+
+----------------------------------------------------------------------
+2.4 ENVELOPE SIZE LIMIT
+----------------------------------------------------------------------
+
+Relays MUST reject envelopes larger than:
+
+    5 MiB
+
+Recommended maximum:
+
+    5_242_880 bytes
+
+This limit includes:
+
+- Header
+- IV
+- Ciphertext
+- Authentication tag
+
+This prevents relays from becoming unbounded object storage systems.
+
+----------------------------------------------------------------------
+2.5 ENVELOPE IMMUTABILITY
+----------------------------------------------------------------------
+
+Relays MUST forward exact byte-identical envelope copies.
+
+Relays MUST NOT modify:
+
+- UUID
+- Timestamp
+- Public keys
+- Ciphertext
+- Authentication tag
+
+======================================================================
+3. HIGH-LEVEL ARCHITECTURE
+======================================================================
+
+    +----------------------+
+    | UI Layer             |
+    +----------------------+
+               |
+               v
+    +----------------------+
+    | SMERP Client Engine  |
+    +----------------------+
+               |
+               v
+    +----------------------+
+    | SMEP Core Crypto     |
+    +----------------------+
+
+======================================================================
+4. INTERNAL CLIENT STATE
+======================================================================
+
+----------------------------------------------------------------------
+4.1 RELAY MAP
+----------------------------------------------------------------------
+
+Relays are stored in a hashmap keyed by URL.
+
+Example:
+
+    Map<url, RelayRecord>
+
+RelayRecord:
+
+    {
+      url,
+      type,
+      enabled,
+      lastSequenceId,
+      lastSuccessAt,
+      lastFailureAt,
+      failureCount
+    }
+
+type:
+
+    "queue"
+    "archive"
+
+Queue relays:
+
+- May consume envelopes after fetch
+- May behave ephemerally
+
+Archive relays:
+
+- Intended for durable synchronization
+- Intended for multi-device recovery
+
+The relay cursor state is stored directly on the relay record.
+
+Separate cursor structures are NOT required.
+
+----------------------------------------------------------------------
+4.2 PROCESSED UUID SET
+----------------------------------------------------------------------
+
+The client maintains:
+
+    Set<uuid>
+
+Purpose:
+
+- Deduplication
+- Federation duplicate handling
+- Multi-relay duplicate handling
+
+----------------------------------------------------------------------
+4.3 CONVERSATION MAP
+----------------------------------------------------------------------
+
+Conversations are stored in:
+
+    Map<publicKeyHex, Conversation>
+
+Where:
+
+- key = remote participant public key
+- value = Conversation
+
+This allows constant-time lookup.
+
+----------------------------------------------------------------------
+4.4 CONVERSATION STRUCTURE
+----------------------------------------------------------------------
+
+Conversation:
+
+    {
+      publicKeyHex,
+      unreadCount,
+      lastMessageAt,
+      getMessages
+    }
+
+getMessages is storage-backed and MAY lazily load data.
+
+This avoids requiring full in-memory message history.
+
+----------------------------------------------------------------------
+4.5 ENRICHED ENVELOPE
+----------------------------------------------------------------------
+
+The canonical client-side message object is an enriched envelope.
+
+Example:
+
+    {
+      envelope,
+      plaintext,
+      direction,
+      relayUrl,
+      receivedAt,
+      read
+    }
+
+direction:
+
+    "inbound"
+    "outbound"
+
+The SMEP envelope remains the canonical immutable transport object.
+
+======================================================================
+5. STORAGE MODEL
+======================================================================
+
+Storage is injectable.
+
+The client library does NOT mandate persistence technology.
+
+Possible implementations:
+
+- IndexedDB
+- SQLite
+- Filesystem
+- In-memory
+- Custom database
+
+The client only assumes a storage adapter interface.
+
+======================================================================
+6. TRANSPORT MODEL
+======================================================================
+
+Networking is fully injected.
+
+The client library never directly performs fetch().
+
+Example:
+
+    const client = new SmerpClient({
+      transport
+    });
+
+transport signature:
+
+    async function transport(request)
+
+request:
+
+    {
+      url,
+      options,
+      relay
+    }
+
+The transport callback returns the native platform response object.
+
+Examples:
+
+- Browser Response
+- Node Response
+- Custom HTTP response
+
+The client library directly inspects:
+
+- status
+- headers
+- body
+
+This allows:
+
+- Custom authentication
+- Proxy support
+- Retry logic
+- Tor
+- I2P
+- Custom fetch implementations
+- Streaming support
+
+======================================================================
+7. PRIMARY EXPORTED CLASS
+======================================================================
+
+The primary public API is:
+
+    class SmerpClient
+
+======================================================================
+8. CLIENT CONSTRUCTOR
+======================================================================
+
+Example:
+
+    const client = new SmerpClient({
+      identity,
+      transport,
+      storage,
+      queueRelays,
+      archiveRelays
+    })
+
+----------------------------------------------------------------------
+8.1 identity
+----------------------------------------------------------------------
+
+Type:
+
+    PrivateIdentity
+
+The local user identity.
+
+----------------------------------------------------------------------
+8.2 transport
+----------------------------------------------------------------------
+
+Injected networking callback.
+
+Required.
+
+----------------------------------------------------------------------
+8.3 storage
+----------------------------------------------------------------------
+
+Injected persistence adapter.
+
+Optional.
+
+----------------------------------------------------------------------
+8.4 queueRelays
+----------------------------------------------------------------------
+
+Initial queue relay list.
+
+Type:
+
+    Array<string>
+
+----------------------------------------------------------------------
+8.5 archiveRelays
+----------------------------------------------------------------------
+
+Initial archive relay list.
+
+Type:
+
+    Array<string>
+
+======================================================================
+9. RELAY MANAGEMENT FUNCTIONS
+======================================================================
+
+----------------------------------------------------------------------
+9.1 addRelayServer
+----------------------------------------------------------------------
+
+Example:
+
+    client.addRelayServer({
+      url,
+      type
+    })
+
+type:
+
+    "queue"
+    "archive"
+
+Creates RelayRecord and inserts into relay map.
+
+----------------------------------------------------------------------
+9.2 removeRelayServer
+----------------------------------------------------------------------
+
+Example:
+
+    client.removeRelayServer(url)
+
+Removes relay from relay map.
+
+----------------------------------------------------------------------
+9.3 getRelayServers
+----------------------------------------------------------------------
+
+Returns:
+
+    Map<url, RelayRecord>
+
+======================================================================
+10. DATA TRANSMISSION FUNCTIONS
+======================================================================
+
+----------------------------------------------------------------------
+10.1 sendData
+----------------------------------------------------------------------
+
+High-level transmission API.
+
+Example:
+
+    await client.sendData({
+      recipientPublicKeyHex,
+      data,
+      contentType
+    })
+
+Behavior:
+
+- Encrypts data using SMEP
+- Creates binary envelope
+- Posts envelope to relays
+- Stores locally
+- Optionally mirrors to archive relays
+
+Returns:
+
+- Native transport responses
+
+Example:
+
+    Map<relayUrl, Response>
+
+This allows applications to inspect:
+
+- Status codes
+- Headers
+- Cookies
+- Relay metadata
+
+----------------------------------------------------------------------
+10.2 postEnvelope
+----------------------------------------------------------------------
+
+Low-level relay operation.
+
+Example:
+
+    await client.postEnvelope({
+      relayUrl,
+      encryptedEnvelope
+    })
+
+Returns:
+
+- Native transport response
+
+----------------------------------------------------------------------
+10.3 fetchEnvelope
+----------------------------------------------------------------------
+
+Fetches a single envelope from relay.
+
+Example:
+
+    await client.fetchEnvelope({
+      relayUrl
+    })
+
+Behavior:
+
+- Uses relay-local cursor
+- Requests next envelope
+- Reads updated sequence ID from response metadata
+- Deduplicates using UUID
+- Decrypts envelope
+- Updates conversations
+- Updates relay state
+
+Returns:
+
+    {
+      envelope,
+      plaintext,
+      relayUrl
+    }
+
+OR:
+
+    null
+
+======================================================================
+11. SYNCHRONIZATION
+======================================================================
+
+----------------------------------------------------------------------
+11.1 sync
+----------------------------------------------------------------------
+
+High-level synchronization operation.
+
+Example:
+
+    await client.sync()
+
+Behavior:
+
+- Polls queue relays
+- Polls archive relays
+- Fetches envelopes
+- Deduplicates envelopes
+- Decrypts envelopes
+- Updates conversations
+- Updates relay cursors
+
+----------------------------------------------------------------------
+11.2 startPolling
+----------------------------------------------------------------------
+
+Example:
+
+    client.startPolling({
+      intervalMs
+    })
+
+Starts periodic synchronization loop.
+
+----------------------------------------------------------------------
+11.3 stopPolling
+----------------------------------------------------------------------
+
+Stops synchronization loop.
+
+======================================================================
+12. CONVERSATION FUNCTIONS
+======================================================================
+
+----------------------------------------------------------------------
+12.1 getConversations
+----------------------------------------------------------------------
+
+Returns:
+
+    Map<publicKeyHex, Conversation>
+
+----------------------------------------------------------------------
+12.2 getConversation
+----------------------------------------------------------------------
+
+Example:
+
+    client.getConversation(publicKeyHex)
+
+Returns:
+
+    Conversation
+
+----------------------------------------------------------------------
+12.3 markConversationRead
+----------------------------------------------------------------------
+
+Marks conversation messages as read.
+
+======================================================================
+13. ARCHIVE MIRRORING STRATEGY
+======================================================================
+
+When receiving envelopes from queue relays, the client SHOULD repost
+those envelopes to archive relays.
+
+This enables:
+
+- Multi-device synchronization
+- Browser recovery
+- Durable history
+
+Queue relays therefore function as transient propagation relays while
+archive relays function as durable synchronization anchors.
+
+======================================================================
+14. EVENT SYSTEM
+======================================================================
+
+The client SHOULD expose an event system.
+
+Example:
+
+    client.on("message", callback)
+
+Recommended events:
+
+- message
+- conversationUpdated
+- relayFailure
+- relayRecovered
+- syncComplete
+
+This allows reactive UI integration.
+
+======================================================================
+15. CLIENT CONVERSATION MODEL
+======================================================================
+
+Conversations are entirely client-derived.
+
+The network only transports envelopes.
+
+A conversation is defined as:
+
+    pair(localPublicKey, remotePublicKey)
+
+Envelopes belong to the same conversation when:
+
+    sender == local AND recipient == remote
+
+OR
+
+    sender == remote AND recipient == local
+
+No relay server is aware of conversations.
