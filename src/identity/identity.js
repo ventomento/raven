@@ -4,9 +4,10 @@ import {
   generateKeyPair,
   importPrivateKey,
   exportPrivateKey,
-  exportPublicKey,
   importPublicKey,
-  derivePublicKeyFromPrivate
+  exportPublicKey,
+  derivePublicKeyFromPrivate,
+  exportPublicKeyBytes
 } from "../crypto/x25519.js";
 
 export class PublicIdentity {
@@ -128,6 +129,12 @@ export class PrivateIdentity {
   async exportPublicHex() {
 
     return exportPublicKey(
+      this.publicKey
+    );
+  }
+
+  async exportPublicBytes(){
+    return exportPublicKeyBytes(
       this.publicKey
     );
   }

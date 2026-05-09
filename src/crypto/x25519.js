@@ -44,6 +44,7 @@ export async function importPublicKey(publicKeyRaw) {
 }
 
 export async function exportPublicKey(publicKey) {
+  // returns hex representation
 
   const raw = await crypto.subtle.exportKey(
     "raw",

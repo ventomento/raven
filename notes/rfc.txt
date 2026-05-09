@@ -1,0 +1,387 @@
+RFC: Raven - Secure Messaging Envelope Protocol (SMEP)
+Version: 1
+
+======================================================================
+1. OVERVIEW
+======================================================================
+
+SMEP is a binary encrypted messaging protocol using:
+
+- X25519 key agreement (RFC7748)
+- SHA-256 key derivation
+- AES-256-GCM authenticated encryption
+
+The protocol provides:
+
+- Confidentiality
+- Integrity protection
+- Authenticated encryption
+
+The protocol does NOT provide:
+
+- Sender authentication
+- Identity verification
+- Replay protection
+- Forward secrecy
+- Admission control
+- Rate limiting
+
+The transport layer or higher application layers are responsible for
+those concerns.
+
+The protocol uses only RFC7748 X25519 operations.
+
+The protocol does NOT use:
+
+- Ed25519
+- Edwards25519
+- Curve conversions
+- Birational mappings
+
+======================================================================
+2. STANDARDS
+======================================================================
+
+X25519     RFC7748
+AES-GCM    NIST SP 800-38D
+SHA-256    FIPS 180-4
+UUID       RFC 4122
+
+======================================================================
+3. IDENTITY SYSTEM
+======================================================================
+
+Participant identities are X25519 public keys.
+
+----------------------------------------------------------------------
+3.1 PRIVATE KEY STORAGE
+----------------------------------------------------------------------
+
+Private keys MUST be stored as:
+
+- 32 cryptographically secure random bytes
+- Raw secret form
+- Hex encoded when externally serialized
+
+The stored key MUST NOT be pre-clamped.
+
+----------------------------------------------------------------------
+3.2 X25519 CLAMPING
+----------------------------------------------------------------------
+
+During X25519 operations, private keys MUST be clamped according to
+RFC7748:
+
+    scalar[0]  &= 248
+    scalar[31] &= 127
+    scalar[31] |= 64
+
+Equivalent bit rules:
+
+- Clear bits 0,1,2 of byte 0
+- Clear bit 7 of byte 31
+- Set bit 6 of byte 31
+
+----------------------------------------------------------------------
+3.3 PUBLIC KEY FORMAT
+----------------------------------------------------------------------
+
+X25519 public keys:
+
+- MUST be exactly 32 bytes
+- MUST use RFC7748 Montgomery u-coordinate encoding
+- MUST use little-endian encoding
+
+The Montgomery v-coordinate is NOT included.
+
+----------------------------------------------------------------------
+3.4 PUBLIC KEY DERIVATION
+----------------------------------------------------------------------
+
+Public keys are derived as:
+
+    publicKey = X25519(privateKey, basePoint)
+
+Where:
+
+    basePoint = 9
+
+======================================================================
+4. KEY AGREEMENT
+======================================================================
+
+Shared secrets are derived as:
+
+    sharedSecret =
+        X25519(localPrivateKey, remotePublicKey)
+
+The shared secret:
+
+- MUST be 32 bytes
+- MUST be treated as opaque binary data
+- MUST NOT be endian-converted
+
+If the shared secret equals 32 zero bytes, the operation MUST fail.
+
+======================================================================
+5. AES-256-GCM ENCRYPTION
+======================================================================
+
+----------------------------------------------------------------------
+5.1 AES KEY DERIVATION
+----------------------------------------------------------------------
+
+The AES-256 key is derived as:
+
+    aesKey = SHA256(sharedSecret)
+
+Input:
+
+- Raw 32-byte X25519 shared secret
+
+Output:
+
+- 32-byte AES-256 key
+
+No additional KDF is used.
+
+----------------------------------------------------------------------
+5.2 IV REQUIREMENTS
+----------------------------------------------------------------------
+
+AES-GCM IVs:
+
+- MUST be 12 bytes
+- MUST be cryptographically random
+- MUST be unique per AES key
+
+----------------------------------------------------------------------
+5.3 AUTHENTICATION TAG
+----------------------------------------------------------------------
+
+AES-GCM authentication tags:
+
+- MUST be 16 bytes
+
+======================================================================
+6. ENCRYPTED ENVELOPE FORMAT
+======================================================================
+
+----------------------------------------------------------------------
+6.1 OVERVIEW
+----------------------------------------------------------------------
+
+Envelope structure:
+
+    +------------------+
+    | Fixed Header     |
+    +------------------+
+    | Encrypted Payload|
+    +------------------+
+
+The header is untrusted metadata.
+
+The encrypted payload provides confidentiality and integrity.
+
+======================================================================
+7. BYTE ORDER AND ENCODING RULES
+======================================================================
+
+All structured integer fields MUST use big-endian
+(network byte order).
+
+Single-byte integers require no conversion.
+
+Opaque byte sequences MUST NOT be:
+
+- Byte-swapped
+- Endian-converted
+- Reordered
+
+Opaque byte sequences include:
+
+- UUIDs
+- X25519 public keys
+- AES-GCM IVs
+- Ciphertext
+- Authentication tags
+
+X25519 public keys MUST remain in RFC7748 little-endian format during
+serialization.
+
+======================================================================
+8. FIXED HEADER FORMAT
+======================================================================
+
+Total header size: 94 bytes
+
+----------------------------------------------------------------------
+FIELD                     SIZE      TYPE
+----------------------------------------------------------------------
+
+version                   1         uint8
+uuid                      16        bytes
+sender_public_key         32        bytes
+recipient_public_key      32        bytes
+timestamp                 8         uint64
+content_type              1         uint8
+payload_size              4         uint32
+
+----------------------------------------------------------------------
+8.1 FIELD RULES
+----------------------------------------------------------------------
+
+version
+
+    MUST equal 0x01
+
+uuid
+
+    MUST be treated as opaque bytes.
+
+sender_public_key
+
+    MUST be:
+    - 32-byte RFC7748 X25519 public key
+    - little-endian Montgomery u-coordinate encoding
+
+recipient_public_key
+
+    MUST be:
+    - 32-byte RFC7748 X25519 public key
+    - little-endian Montgomery u-coordinate encoding
+
+timestamp
+
+    MUST use big-endian uint64 encoding.
+    Represents UTC Unix epoch seconds.
+
+content_type
+
+    Application-defined payload type hint.
+
+payload_size
+
+    MUST use big-endian uint32 encoding.
+    Represents encrypted payload section size.
+
+======================================================================
+9. ENCRYPTED PAYLOAD FORMAT
+======================================================================
+
+The encrypted payload immediately follows the fixed header.
+
+----------------------------------------------------------------------
+FIELD                     SIZE      TYPE
+----------------------------------------------------------------------
+
+aes_gcm_iv                12        bytes
+ciphertext                variable  bytes
+auth_tag                  16        bytes
+
+Payload structure:
+
+    payload_size =
+        12 + len(ciphertext) + 16
+
+Ciphertext length:
+
+    ciphertext_length =
+        payload_size - 28
+
+======================================================================
+10. CONSTRAINTS
+======================================================================
+
+- payload_size MUST be >= 28
+
+- sender_public_key MUST be exactly 32 bytes
+
+- recipient_public_key MUST be exactly 32 bytes
+
+- AES-GCM IVs MUST be unique per AES key
+
+======================================================================
+11. CONTENT TYPES
+======================================================================
+
+typedef uint8_t ContentType;
+
+#define CT_TEXT_UTF8  0x01
+#define CT_IMAGE      0x02
+#define CT_VIDEO      0x03
+#define CT_AUDIO      0x04
+#define CT_FILE       0x05
+#define CT_UNKNOWN    0xFF
+
+The content_type field is informational only.
+
+It MUST NOT affect cryptographic processing.
+
+======================================================================
+12. MESSAGE WORKFLOW
+======================================================================
+
+----------------------------------------------------------------------
+12.1 IDENTITY GENERATION
+----------------------------------------------------------------------
+
+1. Generate 32 cryptographically secure random bytes
+2. Store as private key secret
+3. Clamp during X25519 operations
+4. Compute:
+
+       publicKey = X25519(privateKey, basePoint)
+
+5. Share public key
+
+----------------------------------------------------------------------
+12.2 ENCRYPTION
+----------------------------------------------------------------------
+
+1. Obtain recipient public key
+2. Compute:
+
+       sharedSecret =
+           X25519(localPrivateKey, recipientPublicKey)
+
+3. Compute:
+
+       aesKey = SHA256(sharedSecret)
+
+4. Generate random 12-byte IV
+5. Encrypt using AES-256-GCM
+6. Construct envelope
+
+----------------------------------------------------------------------
+12.3 DECRYPTION
+----------------------------------------------------------------------
+
+1. Obtain sender public key
+2. Compute:
+
+       sharedSecret =
+           X25519(localPrivateKey, senderPublicKey)
+
+3. Compute:
+
+       aesKey = SHA256(sharedSecret)
+
+4. Verify authentication tag
+5. Decrypt ciphertext
+
+If authentication fails, the payload MUST be rejected.
+
+======================================================================
+13. SECURITY NOTES
+======================================================================
+
+- Public keys are participant identities
+- Public keys function as messaging addresses
+- Private key hex secrets function as persistent login credentials
+- The envelope header is NOT authenticated unless externally bound
+  as AES-GCM Additional Authenticated Data (AAD)
+- Reusing an AES-GCM IV with the same key breaks confidentiality and
+  integrity
+- All randomness MUST come from a cryptographically secure random
+  source

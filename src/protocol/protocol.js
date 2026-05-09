@@ -84,7 +84,7 @@ export async function createEncryptedEnvelope({
   plaintext,
   contentType = ContentTypes.TEXT_UTF8,
 }) {
-
+  
   const plaintextBytes = encodePlaintext(plaintext);
 
   const { iv, ciphertext, auth_tag } = await encryptBytes({
