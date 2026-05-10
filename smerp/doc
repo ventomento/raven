@@ -162,7 +162,7 @@ RelayRecord:
       url,
       type,
       enabled,
-      lastSequenceId,
+      sid, //sequenceId for distributed sync
       lastSuccessAt,
       lastFailureAt,
       failureCount

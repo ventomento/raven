@@ -20,13 +20,16 @@ import {
   encrypt,
   PrivateIdentity,
   PublicIdentity,
-} from "../index.js";
+} from "../../../smep/src/index.js";
+
+import { StorageMemory } from "./storage/storage-memory.js";
 
 export class SmerpClient {
 
   constructor({
     identity,
     transport,
+    storage = new StorageMemory(),
     queueRelays = {},
     archiveRelays = {},
   }) {
@@ -141,6 +144,7 @@ export class SmerpClient {
       } catch (error) {
         this.relayError(relay);
       } 
+
   }
 
   relaySuccess(relay) {
