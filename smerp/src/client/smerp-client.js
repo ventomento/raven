@@ -23,6 +23,7 @@ import {
 } from "../../../smep/src/index.js";
 
 import { StorageMemory } from "./storage/storage-memory.js";
+import { EnvelopeIngestor } from "./ingestor/envelope-ingestor.js";
 
 export class SmerpClient {
 
@@ -53,8 +54,17 @@ export class SmerpClient {
     this.queueRelays = queueRelays;
     this.archiveRelays = archiveRelays;
 
-    this.seenUuids = {};
-    this.conversations = {};
+    this.ingestor =
+      new EnvelopeIngestor({
+
+        storage,
+
+        localPublicKeyHex:
+          identity.exportPublicHex(),
+
+        emit:
+          this.emit?.bind(this),
+      });
   }
 
   addQueueRelay(url) {

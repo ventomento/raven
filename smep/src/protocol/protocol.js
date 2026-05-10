@@ -128,6 +128,7 @@ export async function decryptEnvelope({
 
   return Object.freeze({
     senderPublicKeyHex: bytesToHex(envelope.sender_public_key),
+    recipientPublickeyHex: bytesToHex(envelope.recipient_public_key),
     contentType: envelope.content_type,
     plaintext,
     timestamp: envelope.timestamp,
