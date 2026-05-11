@@ -1,9 +1,17 @@
 // src/ingest/envelope-ingestor.js
 
-export class EnvelopeIngestor {
+
+import {
+  decrypt,
+  PrivateIdentity,
+  PublicIdentity,
+} from "../../smep/src/index.js";
+
+export class Ingestor {
 
   constructor({
     storage,
+    identity,
     localPublicKeyHex,
     emit = null,
   }) {
@@ -23,12 +31,9 @@ export class EnvelopeIngestor {
     receivedAt = Date.now(),
   }) {
 
-    this.validate(envelope);
+    # decrypt Headers.
 
-    const isDuplicate =
-      await this.checkDuplicate(envelope.uuid);
-
-    if (isDuplicate) {
+    if ( await this.checkDuplicate(envelope.uuid) ) {
       return {
         inserted: false,
         duplicate: true,
@@ -42,12 +47,8 @@ export class EnvelopeIngestor {
         receivedAt,
       });
 
-    await this.storage.envelopesPut(
-      envelope
-    );
-
-    const conversation =
-      await this.upsertConversation(enriched);
+    await this.storage.envelopesPut(envelope);
+    const conversation = await this.upsertConversation(enriched);
 
     this.emitEvents(enriched, conversation);
 
@@ -57,21 +58,6 @@ export class EnvelopeIngestor {
       envelope: enriched,
       conversation,
     };
-  }
-
-  // =====================================================
-  // VALIDATION
-  // =====================================================
-
-  validate(envelope) {
-
-    if (!envelope) {
-      throw new Error("envelope required");
-    }
-
-    if (!envelope.uuid) {
-      throw new Error("envelope.uuid required");
-    }
   }
 
   // =====================================================
@@ -99,9 +85,7 @@ export class EnvelopeIngestor {
     receivedAt,
   }) {
 
-    const outbound =
-      envelope.senderPublicKeyHex ===
-      this.localPublicKeyHex;
+    const outbound = (envelope.senderPublicKeyHex === this.localPublicKeyHex);
 
     const publicKeyHex =
       outbound
@@ -144,10 +128,8 @@ export class EnvelopeIngestor {
       conversations[0];
 
     if (!conversation) {
-
       conversation = this.createConversation(envelope);
     } else {
-
       conversation = this.updateConversation(
         conversation,
         envelope

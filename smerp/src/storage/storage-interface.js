@@ -50,13 +50,13 @@ export class StorageInterface {
   // RELAY STATES
   // =========================================================
 
-  async relayStatesGet(options = {}) {
+  async relaysGet(options = {}) {
     throw new Error(
       "relayStatesGet() not implemented"
     );
   }
 
-  async relayStatesPut(record) {
+  async relaysPut(record) {
     throw new Error(
       "relayStatesPut() not implemented"
     );

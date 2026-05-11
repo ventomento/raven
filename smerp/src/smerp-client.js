@@ -20,10 +20,10 @@ import {
   encrypt,
   PrivateIdentity,
   PublicIdentity,
-} from "../../../smep/src/index.js";
+} from "../../smep/src/index.js";
 
 import { StorageMemory } from "./storage/storage-memory.js";
-import { EnvelopeIngestor } from "./ingestor/envelope-ingestor.js";
+import { EnvelopeIngestor } from "./ingest/ingestor.js";
 
 export class SmerpClient {
 
@@ -48,49 +48,18 @@ export class SmerpClient {
     }
 
     this.identity = identity;
-
     this.transport = transport;
-
     this.queueRelays = queueRelays;
     this.archiveRelays = archiveRelays;
 
     this.ingestor =
       new EnvelopeIngestor({
-
         storage,
-
-        localPublicKeyHex:
-          identity.exportPublicHex(),
-
-        emit:
-          this.emit?.bind(this),
+        localPublicKeyHex: identity.exportPublicHex(),
+        emit: this.emit?.bind(this),
       });
-  }
 
-  addQueueRelay(url) {
-
-    this.queueRelays[url] = {
-      enabled: true,
-      lastSequenceId: null,
-      lastSuccessAt: null,
-      lastFailureAt: null,
-      failureCount: 0,
-    };
-  }
-
-  addArchiveRelay(url) {
-
-    this.archiveRelays[url] = {
-      enabled: true,
-      sid: null, //lastSequenceId
-      lastSuccessAt: null,
-      lastFailureAt: null,
-      failureCount: 0,
-    };
-  }
-
-  getConversation(publicKeyHex) {
-    return this.conversations[publicKeyHex];
+    this.seedRelays(this.storage);
   }
 
   async sendData(
@@ -148,22 +117,36 @@ export class SmerpClient {
             timeout: 10000
           });
         
-        this.relaySuccess(relay);
         return response;
 
       } catch (error) {
-        this.relayError(relay);
+        throw(error);
       } 
 
   }
 
-  relaySuccess(relay) {
-    relay.lastSuccessAt = Date.now();
-    relay.failureCount = 0;
+  envelopeIngest(envelope){
+    this.ingestor.ingest(envelope);
   }
 
-  relayError(relay){
-    relay.lastFailureAt = Date.now();
-    relay.failureCount += 1;
+  seedRelays(storage) {
+    const seedList = ["localhost"];
+
+    const defaultRelay = {
+        enabled: true,
+        lastSequenceId: null,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+        failureCount: 0,
+    };
+
+    for (const url of seedList) {
+        storage.relaysPut({
+            relayUrl: url,
+            ...defaultRelay
+        });
+    }
   }
+  
 }
+

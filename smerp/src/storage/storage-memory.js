@@ -17,7 +17,7 @@ export class StorageMemory
     this.conversations =
       new Map();
 
-    this.relayStates =
+    this.relays =
       new Map();
   }
 
@@ -152,19 +152,19 @@ export class StorageMemory
   // RELAY STATES
   // =========================================================
 
-  async relayStatesPut(record) {
+  async relaysPut(record) {
 
-    this.relayStates.set(
+    this.relays.set(
       record.relayUrl,
       record
     );
   }
 
-  async relayStatesGet(options = {}) {
+  async relaysGet(options = {}) {
 
     let results =
       Array.from(
-        this.relayStates.values()
+        this.relays.values()
       );
 
     if (options.relayUrl) {
