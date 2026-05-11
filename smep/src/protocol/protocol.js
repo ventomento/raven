@@ -164,11 +164,11 @@ export async function encrypt({
 
 export async function decrypt({
   recipient,
-  encrypted,
+  envelopeBytes,
 }) {
-  require(encrypted, ArrayBuffer);
+  require(envelopeBytes, ArrayBuffer);
 
-  const envelope = Serializer.unpack(encrypted);
+  const envelope = Serializer.unpack(envelopeBytes);
 
   return decryptEnvelope({
     recipient,

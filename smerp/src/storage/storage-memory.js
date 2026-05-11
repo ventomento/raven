@@ -180,4 +180,22 @@ export class StorageMemory
     return results;
   }
 
+  async relaysSeed(seedList = ["localhost"]) {
+
+    const defaultRelay = {
+        enabled: true,
+        lastSequenceId: null,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+        failureCount: 0,
+    };
+
+    for (const url of seedList) {
+        this.relaysPut({
+            relayUrl: url,
+            ...defaultRelay
+        });
+    }
+  }
+
 }

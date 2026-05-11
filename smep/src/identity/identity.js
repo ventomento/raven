@@ -14,7 +14,7 @@ export class PublicIdentity {
 
   constructor(publicKey){
 
-    if (!publicKey instanceof CryptoKey){
+    if (! (publicKey instanceof CryptoKey) ){
       throw new Error("publicKey must be cryptokey");
     }
     
@@ -29,7 +29,7 @@ export class PublicIdentity {
   }
 
   static async fromPublicHex(publicKeyHex){
-    const publicKey = importPublicKey(publicKeyHex);
+    const publicKey = await importPublicKey(publicKeyHex);
     return new PublicIdentity(publicKey);
   }
 }

@@ -23,7 +23,8 @@ import {
 } from "../../smep/src/index.js";
 
 import { StorageMemory } from "./storage/storage-memory.js";
-import { EnvelopeIngestor } from "./ingest/ingestor.js";
+import { Ingestor } from "./ingest/ingestor.js";
+import { measureLag } from "./atx/lag-monitor.js";
 
 export class SmerpClient {
 
@@ -31,8 +32,7 @@ export class SmerpClient {
     identity,
     transport,
     storage = new StorageMemory(),
-    queueRelays = {},
-    archiveRelays = {},
+    debug = true
   }) {
 
     if (!(identity instanceof PrivateIdentity)) {
@@ -49,35 +49,36 @@ export class SmerpClient {
 
     this.identity = identity;
     this.transport = transport;
-    this.queueRelays = queueRelays;
-    this.archiveRelays = archiveRelays;
-
     this.ingestor =
-      new EnvelopeIngestor({
+      new Ingestor({
         storage,
-        localPublicKeyHex: identity.exportPublicHex(),
+        identity: this.identity,
         emit: this.emit?.bind(this),
       });
 
-    this.seedRelays(this.storage);
   }
 
-  async sendData(
+  async encryptData(
     recipientPublicKeyHex,
     data
   ) {
-
+    
     const recipient =
       await PublicIdentity.fromPublicHex(
         recipientPublicKeyHex
       );
 
-    const encrypted =
-      await encrypt({
+    return await encrypt({
         sender: this.identity,
         recipient,
         plaintext: data,
       });
+
+  }
+
+  async sendData(
+    data
+  ) {
 
     const options = {
       method: "POST",
@@ -87,12 +88,11 @@ export class SmerpClient {
           "application/octet-stream",
       },
 
-      body: encrypted,
+      body: data,
     };
 
     return await this.loopRelays(options);
   }
-
 
   async loopRelays(options) {
     return Promise.allSettled(
@@ -125,27 +125,27 @@ export class SmerpClient {
 
   }
 
-  envelopeIngest(envelope){
-    this.ingestor.ingest(envelope);
+  ingest(envelope){
+
+    measureLag(
+      () => { this.ingestor.ingest(envelope) },
+      this.debug
+    );
+    
   }
 
-  seedRelays(storage) {
-    const seedList = ["localhost"];
+  //views 
 
-    const defaultRelay = {
-        enabled: true,
-        lastSequenceId: null,
-        lastSuccessAt: null,
-        lastFailureAt: null,
-        failureCount: 0,
-    };
+  async conversationsGet(){
+    return await this.storage.conversationsGet();
+  }
 
-    for (const url of seedList) {
-        storage.relaysPut({
-            relayUrl: url,
-            ...defaultRelay
-        });
-    }
+  async envelopesGet(publicKeyHex){
+    return await this.storage.envelopesGet(publicKeyHex);
+  } 
+
+  async relaysGet(){
+    return await this.storage.relaysGet();
   }
   
 }

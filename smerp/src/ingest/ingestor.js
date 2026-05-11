@@ -1,63 +1,75 @@
 // src/ingest/envelope-ingestor.js
 
-
 import {
   decrypt,
   PrivateIdentity,
   PublicIdentity,
-} from "../../smep/src/index.js";
+} from "../../../smep/src/index.js";
+
+import { LagMonitor } from "../atx/lag-monitor.js";
 
 export class Ingestor {
 
   constructor({
     storage,
     identity,
-    localPublicKeyHex,
     emit = null,
   }) {
 
     this.storage = storage;
-    this.localPublicKeyHex = localPublicKeyHex;
+    this.identity = identity;
     this.emit = emit;
+  }
+
+  async getLocalPublicHex(){
+
+    if ( this.localPublicHex === undefined ){
+      this.localPublicHex = await this.identity.exportPublicHex();
+    }
+    
+    return this.localPublicHex;
+  }
+
+  async isIdentity(publicHex){
+    
+    return (await this.getLocalPublicHex()) == publicHex;
   }
 
   // =====================================================
   // PUBLIC ENTRY
   // =====================================================
 
+  // return false on dublicate and true if inserted to storage.
   async ingest({
-    envelope,
-    relayUrl = null,
+    envelopeBytes,
+    relay = null,
     receivedAt = Date.now(),
   }) {
 
-    # decrypt Headers.
+    const envelope = await decrypt(
+      {recipient: this.identity, envelopeBytes}
+    );
 
     if ( await this.checkDuplicate(envelope.uuid) ) {
-      return {
-        inserted: false,
-        duplicate: true,
-      };
+      return false;
     }
 
-    const enriched =
-      this.buildEnrichedEnvelope({
+    const enriched = await this.buildEnrichedEnvelope({
         envelope,
-        relayUrl,
-        receivedAt,
-      });
+        relayUrl: relay?.relayUrl ?? null,
+          receivedAt,
+        });
 
+    await this.storagePut({envelope: enriched, relay});
+    this.emitEvents(enriched);
+
+    return true;
+  }
+
+  async storagePut({envelope, relay}){
     await this.storage.envelopesPut(envelope);
-    const conversation = await this.upsertConversation(enriched);
-
-    this.emitEvents(enriched, conversation);
-
-    return {
-      inserted: true,
-      duplicate: false,
-      envelope: enriched,
-      conversation,
-    };
+    await this.upsertConversation(envelope);
+    //update relays;
   }
 
   // =====================================================
@@ -79,13 +91,13 @@ export class Ingestor {
   // ENRICHMENT
   // =====================================================
 
-  buildEnrichedEnvelope({
+  async buildEnrichedEnvelope({
     envelope,
     relayUrl,
     receivedAt,
   }) {
 
-    const outbound = (envelope.senderPublicKeyHex === this.localPublicKeyHex);
+    const outbound = await this.isIdentity( envelope.senderPublicKeyHex );
 
     const publicKeyHex =
       outbound
@@ -172,10 +184,8 @@ export class Ingestor {
           ? conversation.unreadCount
           : conversation.unreadCount + 1,
 
-      lastMessageAt: Math.max(
-        conversation.lastMessageAt,
-        envelope.timestamp
-      ),
+      lastMessageAt: 
+        conversation.lastMessageAt > envelope.timestamp ? conversation.lastMessageAt : envelope.timestamp,
     };
   }
 
@@ -192,3 +202,31 @@ export class Ingestor {
     this.emit("conversationUpdated", conversation);
   }
 }
+
+
+/* Record Models 
+
+# relay record:
+relayUrl
+enabled
+sid
+lastSuccessAt
+lastFailureAt
+failureCount
+
+# envelope record:
+senderPublicKeyHex
+recipientPublickeyHex
+contentType
+plaintext
+timestamp
+uuid
+relayUrl,
+receivedAt,
+
+#conversation record:
+publicKeyHex
+unreadCount
+lastMessageAt
+
+*/
