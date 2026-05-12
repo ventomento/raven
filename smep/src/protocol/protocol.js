@@ -14,12 +14,10 @@ import {
 } from "../crypto/aes-gcm.js";
 
 import { randomIV } from "../crypto/random.js";
-
 import { generateUuidBytes } from "../encoding/uuid.js";
 import { encodePlaintext } from "../encoding/plaintext.js";
 import { decodeUtf8 } from "../encoding/utf8.js";
 import { bytesToHex } from "../encoding/hex.js";
-
 import { Serializer } from "../envelope/serializer.js";
 import { ContentTypes } from "../envelope/content-types.js";
 
@@ -128,7 +126,7 @@ export async function decryptEnvelope({
 
   return Object.freeze({
     senderPublicKeyHex: bytesToHex(envelope.sender_public_key),
-    recipientPublickeyHex: bytesToHex(envelope.recipient_public_key),
+    recipientPublicKeyHex: bytesToHex(envelope.recipient_public_key),
     contentType: envelope.content_type,
     plaintext,
     timestamp: envelope.timestamp,

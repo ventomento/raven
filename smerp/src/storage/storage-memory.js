@@ -1,5 +1,7 @@
 // src/storage/storage-memory.js
 
+// Just a mock module for testing. Do not use in production.
+
 import {
   StorageInterface,
 } from "./storage-interface.js";

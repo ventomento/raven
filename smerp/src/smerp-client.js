@@ -1,71 +1,57 @@
-// src/client/smerp-client.js
-
-/*
-transport interface.
-async function transport({
-  url,
-  options,
-  timeout,
-}) {
-
-  return {
-    status,
-    headers,
-    body,
-  };
-} 
-*/
+// src/smerp-client.js
 
 import {
   encrypt,
+  decrypt,
   PrivateIdentity,
   PublicIdentity,
 } from "../../smep/src/index.js";
 
+import { require } from "../../smep/src/util/util.js";
+
 import { StorageMemory } from "./storage/storage-memory.js";
-import { Ingestor } from "./ingest/ingestor.js";
 import { measureLag } from "./atx/lag-monitor.js";
+import { TransportDefault } from "./transport/transport-default.js";
+
 
 export class SmerpClient {
 
   constructor({
     identity,
-    transport,
+    transporter = new TransportDefault(),
     storage = new StorageMemory(),
     debug = true
   }) {
 
-    if (!(identity instanceof PrivateIdentity)) {
-      throw new Error(
-        "identity must be PrivateIdentity"
-      );
-    }
+    require(identity, PrivateIdentity);
 
-    if (typeof transport !== "function") {
-      throw new Error(
-        "transport must be function"
-      );
-    }
-
+    this.debug = debug;
     this.identity = identity;
-    this.transport = transport;
-    this.ingestor =
-      new Ingestor({
-        storage,
+    this.transporter = transporter;
+    this.storage = storage;
+    this.ingestor = new Ingestor({
+        storage: this.storage,
         identity: this.identity,
         emit: this.emit?.bind(this),
       });
 
   }
 
-  async encryptData(
-    recipientPublicKeyHex,
+  /* return: encrypted envelope bytes */
+  async encryptData({
+    publicKeyHex,
     data
-  ) {
+  }) {
+
+    //console.log(await this.identity.exportPublicHex(), publicKeyHex);
+
+    if (await this.ingestor.isIdentity(publicKeyHex)){
+      throw new Error("smerp-client: cannot sendData to identity");
+    }
     
     const recipient =
       await PublicIdentity.fromPublicHex(
-        recipientPublicKeyHex
+        publicKeyHex
       );
 
     return await encrypt({
@@ -76,65 +62,61 @@ export class SmerpClient {
 
   }
 
-  async sendData(
-    data
-  ) {
+  async ingest(envelopeBytes){
 
-    const options = {
-      method: "POST",
+    console.log(envelopeBytes);
 
-      headers: {
-        "Content-Type":
-          "application/octet-stream",
+    await measureLag(
+      async () => {
+        console.log("b2");
+        await this.ingestor.ingest(envelopeBytes) 
       },
-
-      body: data,
-    };
-
-    return await this.loopRelays(options);
-  }
-
-  async loopRelays(options) {
-    return Promise.allSettled(
-      [
-        ...Object.entries(this.queueRelays),
-        ...Object.entries(this.archiveRelays),
-      ].map(([relayUrl, relay]) =>
-        this.relayPost({ relayUrl, relay, options })
-      )
+      {
+        name : "smerp-client ingest",
+        debug: this.debug
+      }
     );
   }
 
-  async relayPost({relayUrl, relay, options}) {
-    if (!relay.enabled) {return;}
+  async dispatch(envelopeBytes){
 
-    try {
+    const options = {...requestPostOptions, body: envelopeBytes};
+    const relays = await this.storage.relaysGet();
 
-        const response =
-          await this.transport({
-            url: `${relayUrl}/envelopes` + (relay.sid ? `?sid=${relay.sid}` : ""),
-            options,
-            timeout: 10000
-          });
-        
-        return response;
+    const promises = relays.map( (relay) => {
 
-      } catch (error) {
-        throw(error);
-      } 
+      const url = `${relay.relayUrl}/envelopes` + (relay.sid ? `?sid=${relay.sid}` : "");
 
+      return this.transporter.transport({
+        url,
+        options,
+        timeout:10000
+      })
+
+    })
+
+    return await Promise.allSettled(promises);
   }
 
-  ingest(envelope){
+  /* Public API */
 
-    measureLag(
-      () => { this.ingestor.ingest(envelope) },
-      this.debug
+  async sendData({
+    publicKeyHex, //Destination hex (may not send to this.identity)
+    data
+  }) {
+
+    const envelopeBytes = await measureLag(
+      async () => {
+        return await this.encryptData({publicKeyHex, data});
+      },
+      {
+        name : "smerp-client encrypt",
+        debug: this.debug
+      }
     );
-    
-  }
 
-  //views 
+    return await this.dispatch(envelopeBytes);
+  }
 
   async conversationsGet(){
     return await this.storage.conversationsGet();
@@ -150,3 +132,205 @@ export class SmerpClient {
   
 }
 
+// module const
+
+const requestPostOptions = {
+      method: "POST",
+      headers: {
+        "Content-Type":
+          "application/octet-stream",
+      },
+    }; 
+
+// Ingestor
+
+export class Ingestor {
+
+  constructor({
+    storage,
+    identity,
+    emit = null,
+  }) {
+
+    this.storage = storage;
+    this.identity = identity;
+    this.emit = emit;
+  }
+
+  async getLocalPublicHex(){
+
+    if ( this.localPublicHex === undefined ){
+      this.localPublicHex = await this.identity.exportPublicHex();
+    }
+    
+    return this.localPublicHex;
+  }
+
+  async isIdentity(publicHex){
+    
+    return (await this.getLocalPublicHex()) === publicHex;
+  }
+
+  // =====================================================
+  // PUBLIC ENTRY
+  // =====================================================
+
+  async ingest(
+    envelopeBytes
+  ){
+
+    const receivedAt = Date.now();
+    const envelope = await decrypt({
+      recipient: this.identity,
+      envelopeBytes
+    });
+
+    if ( await this.checkDuplicate(envelope.uuid) ) {
+      return false;
+    }
+
+    const enriched = await this.buildEnrichedEnvelope({
+        envelope,
+        receivedAt,
+        });
+
+    await this.storagePut(enriched);
+  }
+
+  async storagePut(envelope){
+    await this.storage.envelopesPut(envelope);
+    await this.upsertConversation(envelope);
+  }
+
+  // =====================================================
+  // DEDUP
+  // =====================================================
+
+  async checkDuplicate(uuid) {
+
+    const existing =
+      await this.storage.envelopesGet({
+        uuid,
+        limit: 1,
+      });
+
+    return existing.length > 0;
+  }
+
+  // =====================================================
+  // ENRICHMENT
+  // =====================================================
+
+  async buildEnrichedEnvelope({
+    envelope,
+    receivedAt,
+  }) {
+
+    const outbound = await this.isIdentity( envelope.senderPublicKeyHex );
+
+    const publicKeyHex =
+      outbound
+        ? envelope.recipientPublicKeyHex
+        : envelope.senderPublicKeyHex;
+
+    return {
+      ...envelope,
+      publicKeyHex,
+      direction: outbound
+        ? "outbound"
+        : "inbound",
+      receivedAt,
+      read: outbound,
+    };
+  }
+
+  // =====================================================
+  // CONVERSATION LOGIC
+  // =====================================================
+
+  async upsertConversation(envelope) {
+
+    const publicKeyHex =
+      envelope.publicKeyHex;
+
+    const conversations =
+      await this.storage.conversationsGet({
+        publicKeyHex,
+        limit: 1,
+      });
+
+    let conversation =
+      conversations[0];
+
+    if (!conversation) {
+      conversation = this.createConversation(envelope);
+    } else {
+      conversation = this.updateConversation(
+        conversation,
+        envelope
+      );
+    }
+
+    await this.storage.conversationsPut(
+      conversation
+    );
+
+    return conversation;
+  }
+
+  createConversation(envelope) {
+
+    return {
+      publicKeyHex: envelope.publicKeyHex,
+      unreadCount: envelope.direction === "inbound" ? 1 : 0,
+      lastMessageAt: envelope.timestamp,
+    };
+  }
+
+  updateConversation(conversation, envelope) {
+
+    const isOutbound =
+      envelope.direction === "outbound";
+
+    return {
+      ...conversation,
+
+      unreadCount:
+        isOutbound
+          ? conversation.unreadCount
+          : conversation.unreadCount + 1,
+
+      lastMessageAt: 
+        conversation.lastMessageAt > envelope.timestamp ? conversation.lastMessageAt : envelope.timestamp,
+    };
+  }
+
+}
+
+
+/* Record Models 
+
+# relay record:
+relayUrl
+enabled
+sid
+lastSuccessAt
+lastFailureAt
+failureCount
+
+# envelope record:
+senderPublicKeyHex
+recipientPublicKeyHex
+contentType
+plaintext
+timestamp
+uuid
+relayUrl,
+receivedAt,
+
+#conversation record:
+publicKeyHex
+unreadCount
+lastMessageAt
+
+*/
