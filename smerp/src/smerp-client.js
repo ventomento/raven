@@ -8,11 +8,9 @@ import {
 } from "../../smep/src/index.js";
 
 import { require } from "../../smep/src/util/util.js";
-
 import { StorageMemory } from "./storage/storage-memory.js";
 import { measureLag } from "./atx/lag-monitor.js";
 import { TransportDefault } from "./transport/transport-default.js";
-
 
 export class SmerpClient {
 
@@ -63,8 +61,6 @@ export class SmerpClient {
   }
 
   async ingest(envelopeBytes){
-
-    console.log(envelopeBytes);
 
     await measureLag(
       async () => {
@@ -308,7 +304,7 @@ export class Ingestor {
 }
 
 
-/* Record Models 
+/* Record Models in storage 
 
 # relay record:
 relayUrl

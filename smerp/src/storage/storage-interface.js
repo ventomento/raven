@@ -1,5 +1,11 @@
 // src/storage/storage-adapter.js
 
+// All "Get" operations must return a list of js objects (maps/dicts).
+
+// envelopes must be keyed by uuid.
+// conversations must be keyed by publicKeyHex.
+// relays must be keyed by relayUrl.
+
 export class StorageInterface {
 
   async initialize() {

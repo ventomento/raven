@@ -1,8 +1,9 @@
-import { encrypt, decrypt } from "./protocol/protocol.js";
-import {
+import { 
+  encrypt, 
+  decrypt,
   PrivateIdentity,
   PublicIdentity
-} from "./identity/identity.js";
+} from "./protocol/protocol.js";
 
 export {
   encrypt,

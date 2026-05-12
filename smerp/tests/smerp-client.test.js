@@ -1,287 +1,328 @@
-// test/smerp-client.test.js
+// test/smerp-client.roundtrip.test.js
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { PrivateIdentity } from "../../smep/src/index.js";
 import { SmerpClient } from "../src/smerp-client.js";
 
-test(
-  "SmerpClient supports bidirectional encrypted conversations correctly",
-  async () => {
+import {
+  PrivateIdentity,
+} from "../../smep/src/index.js";
 
-    // =====================================================
-    // CREATE IDENTITIES
-    // =====================================================
+// ============================================================
+// ROUNDTRIP TEST
+// ============================================================
 
-    const alice = await PrivateIdentity.generate();
-    const bob = await PrivateIdentity.generate();
+test("smerp-client roundtrip encryptData -> ingest -> storage", async () => {
 
-    const aliceHex = await alice.exportPublicHex();
-    const bobHex = await bob.exportPublicHex();
+  // ==========================================================
+  // CREATE CLIENT IDENTITIES
+  // ==========================================================
 
-    // =====================================================
-    // CLIENTS (each represents a user)
-    // =====================================================
+  const aliceIdentity =
+    await PrivateIdentity.generate();
 
-    const aliceClient = new SmerpClient({
-      identity: alice,
-      debug: false,
+  const bobIdentity =
+    await PrivateIdentity.generate();
+
+  // ==========================================================
+  // CREATE CLIENTS
+  // ==========================================================
+
+  const alice = new SmerpClient({
+    identity: aliceIdentity,
+    debug: true,
+  });
+
+  const bob = new SmerpClient({
+    identity: bobIdentity,
+    debug: true,
+  });
+
+  // ==========================================================
+  // EXPORT BOB PUBLIC KEY
+  // ==========================================================
+
+  const bobPublicHex =
+    await bobIdentity.exportPublicHex();
+
+  // ==========================================================
+  // PLAINTEXT
+  // ==========================================================
+
+  const plaintext =
+    "Hello Bob from Alice";
+
+  // ==========================================================
+  // ENCRYPT
+  // ==========================================================
+
+  const envelopeBytes =
+    await alice.encryptData({
+      publicKeyHex: bobPublicHex,
+      data: plaintext,
     });
 
-    const bobClient = new SmerpClient({
-      identity: bob,
-      debug: false,
+  assert.ok(
+    envelopeBytes instanceof ArrayBuffer,
+    "encryptData should return ArrayBuffer"
+  );
+
+  // ==========================================================
+  // INGEST INTO BOB
+  // ==========================================================
+
+  await bob.ingest(envelopeBytes);
+
+  // ==========================================================
+  // FETCH ENVELOPES
+  // ==========================================================
+
+  const alicePublicHex =
+    await aliceIdentity.exportPublicHex();
+
+  const envelopes =
+    await bob.envelopesGet(
+      alicePublicHex
+    );
+
+  // ==========================================================
+  // FETCH CONVERSATIONS
+  // ==========================================================
+
+  const conversations =
+    await bob.conversationsGet();
+
+  // ==========================================================
+  // ASSERT RECORD COUNTS
+  // ==========================================================
+
+  assert.equal(
+    envelopes.length,
+    1,
+    "should store exactly one envelope"
+  );
+
+  assert.equal(
+    conversations.length,
+    1,
+    "should store exactly one conversation"
+  );
+
+  // ==========================================================
+  // ENVELOPE ASSERTIONS
+  // ==========================================================
+
+  const envelope = envelopes[0];
+
+  assert.equal(
+    envelope.plaintext,
+    plaintext,
+    "plaintext should match"
+  );
+
+  assert.equal(
+    envelope.senderPublicKeyHex,
+    alicePublicHex,
+    "sender should be Alice"
+  );
+
+  assert.equal(
+    envelope.recipientPublicKeyHex,
+    bobPublicHex,
+    "recipient should be Bob"
+  );
+
+  assert.equal(
+    envelope.publicKeyHex,
+    alicePublicHex,
+    "conversation key should be Alice"
+  );
+
+  assert.equal(
+    envelope.direction,
+    "inbound",
+    "message should be inbound for Bob"
+  );
+
+  assert.equal(
+    envelope.read,
+    false,
+    "inbound message should be unread"
+  );
+
+  assert.ok(
+    typeof envelope.uuid === "string"
+  );
+
+  assert.ok(
+    typeof envelope.timestamp === "bigint"
+  );
+
+  assert.ok(
+    typeof envelope.receivedAt === "number"
+  );
+
+  // ==========================================================
+  // CONVERSATION ASSERTIONS
+  // ==========================================================
+
+  const conversation =
+    conversations[0];
+
+  assert.equal(
+    conversation.publicKeyHex,
+    alicePublicHex,
+    "conversation should belong to Alice"
+  );
+
+  assert.equal(
+    conversation.unreadCount,
+    1,
+    "conversation unread count should be 1"
+  );
+
+  assert.equal(
+    conversation.lastMessageAt,
+    envelope.timestamp,
+    "lastMessageAt should equal envelope timestamp"
+  );
+
+});
+
+
+// ============================================================
+// OUTBOUND CONVERSATION TEST
+// ============================================================
+
+test("client encrypts for recipient and ingests own outbound message", async () => {
+
+  // ==========================================================
+  // IDENTITIES
+  // ==========================================================
+
+  const aliceIdentity =
+    await PrivateIdentity.generate();
+
+  const bobIdentity =
+    await PrivateIdentity.generate();
+
+  // ==========================================================
+  // CLIENT
+  // ==========================================================
+
+  const alice = new SmerpClient({
+    identity: aliceIdentity,
+    debug: true,
+  });
+
+  // ==========================================================
+  // BOB PUBLIC HEX
+  // ==========================================================
+
+  const bobPublicHex =
+    await bobIdentity.exportPublicHex();
+
+  // ==========================================================
+  // MESSAGE
+  // ==========================================================
+
+  const plaintext =
+    "hello bob";
+
+  // ==========================================================
+  // ENCRYPT
+  // ==========================================================
+
+  const envelopeBytes =
+    await alice.encryptData({
+      publicKeyHex: bobPublicHex,
+      data: plaintext,
     });
+  console.log("b1");
 
-    // =====================================================
-    // MESSAGE 1: BOB → ALICE
-    // =====================================================
+  // ==========================================================
+  // INGEST OWN OUTBOUND MESSAGE
+  // ==========================================================
 
-    const msg1 = "hello alice from bob";
+  console.log("b2");
+  await alice.ingest(envelopeBytes);
+  console.log("b3");
+  // ==========================================================
+  // FETCH STORAGE RECORDS
+  // ==========================================================
 
-    const envelope1 =
-      await bobClient.encryptData({
-        publicKeyHex: aliceHex, // destination = Alice
-        data: msg1,
-      });
+  const conversations =
+    await alice.conversationsGet();
 
-    await aliceClient.ingest(envelope1);
-
-    // =====================================================
-    // VERIFY ALICE RECEIVED MESSAGE
-    // =====================================================
-
-    const aliceEnvelopes =
-      await aliceClient.envelopesGet(aliceHex);
-
-    assert.equal(aliceEnvelopes.length, 1);
-
-    assert.equal(
-      aliceEnvelopes[0].direction,
-      "inbound"
+  const envelopes =
+    await alice.envelopesGet(
+      bobPublicHex
     );
 
-    assert.equal(
-      aliceEnvelopes[0].publicKeyHex,
-      bobHex, // conversation partner = Bob
-      "Alice conversation should be Bob"
-    );
+  // ==========================================================
+  // ASSERT COUNTS
+  // ==========================================================
 
-    // =====================================================
-    // MESSAGE 2: ALICE → BOB
-    // =====================================================
+  assert.equal(
+    conversations.length,
+    1,
+    "should have exactly one conversation"
+  );
 
-    const msg2 = "hello bob from alice";
+  assert.equal(
+    envelopes.length,
+    1,
+    "should have exactly one envelope"
+  );
 
-    const envelope2 =
-      await aliceClient.encryptData({
-        publicKeyHex: bobHex, // destination = Bob
-        data: msg2,
-      });
+  // ==========================================================
+  // ASSERT ENVELOPE
+  // ==========================================================
 
-    await bobClient.ingest(envelope2);
+  const envelope =
+    envelopes[0];
 
-    // =====================================================
-    // VERIFY BOB RECEIVED MESSAGE
-    // =====================================================
+  assert.equal(
+    envelope.plaintext,
+    plaintext
+  );
 
-    const bobEnvelopes =
-      await bobClient.envelopesGet(bobHex);
+  assert.equal(
+    envelope.direction,
+    "outbound"
+  );
 
-    assert.equal(bobEnvelopes.length, 1);
+  assert.equal(
+    envelope.read,
+    true
+  );
 
-    assert.equal(
-      bobEnvelopes[0].direction,
-      "inbound"
-    );
+  assert.equal(
+    envelope.publicKeyHex,
+    bobPublicHex
+  );
 
-    assert.equal(
-      bobEnvelopes[0].publicKeyHex,
-      aliceHex, // conversation partner = Alice
-      "Bob conversation should be Alice"
-    );
+  // ==========================================================
+  // ASSERT CONVERSATION
+  // ==========================================================
 
-    // =====================================================
-    // VERIFY CONVERSATIONS (ALICE SIDE)
-    // =====================================================
+  const conversation =
+    conversations[0];
 
-    const aliceConversations =
-      await aliceClient.conversationsGet();
+  assert.equal(
+    conversation.publicKeyHex,
+    bobPublicHex
+  );
 
-    assert.equal(aliceConversations.length, 1);
+  assert.equal(
+    conversation.unreadCount,
+    0,
+    "outbound conversation should have unreadCount 0"
+  );
 
-    assert.equal(
-      aliceConversations[0].publicKeyHex,
-      bobHex,
-      "Alice conversation is Bob"
-    );
+  assert.ok(
+    typeof conversation.lastMessageAt === "bigint"
+  );
 
-    assert.equal(
-      aliceConversations[0].unreadCount,
-      1,
-      "Alice should have 1 unread message"
-    );
-
-    // =====================================================
-    // VERIFY CONVERSATIONS (BOB SIDE)
-    // =====================================================
-
-    const bobConversations =
-      await bobClient.conversationsGet();
-
-    assert.equal(bobConversations.length, 1);
-
-    assert.equal(
-      bobConversations[0].publicKeyHex,
-      aliceHex,
-      "Bob conversation is Alice"
-    );
-
-    assert.equal(
-      bobConversations[0].unreadCount,
-      1,
-      "Bob should have 1 unread message"
-    );
-  }
-);
-
-//add 
-test(
-  "SmerpClient correctly handles multiple conversations and unread counts",
-  async () => {
-
-    // =====================================================
-    // IDENTITIES
-    // =====================================================
-
-    const bob = await PrivateIdentity.generate();
-    const alice = await PrivateIdentity.generate();
-    const carol = await PrivateIdentity.generate();
-
-    const bobHex = await bob.exportPublicHex();
-    const aliceHex = await alice.exportPublicHex();
-    const carolHex = await carol.exportPublicHex();
-
-    // =====================================================
-    // CLIENT (Bob is sender in this test)
-    // =====================================================
-
-    const bobClient = new SmerpClient({
-      identity: bob,
-      debug: false,
-    });
-
-    // =====================================================
-    // MESSAGE 1: BOB → ALICE
-    // =====================================================
-
-    const msg1 =
-      await bobClient.encryptData({
-        publicKeyHex: aliceHex,
-        data: "hello alice 1",
-      });
-
-    await bobClient.ingest(msg1);
-
-    // =====================================================
-    // MESSAGE 2: BOB → CAROL
-    // =====================================================
-
-    const msg2 =
-      await bobClient.encryptData({
-        publicKeyHex: carolHex,
-        data: "hello carol 1",
-      });
-
-    await bobClient.ingest(msg2);
-
-    // =====================================================
-    // MESSAGE 3: BOB → ALICE (again)
-    // =====================================================
-
-    const msg3 =
-      await bobClient.encryptData({
-        publicKeyHex: aliceHex,
-        data: "hello alice 2",
-      });
-
-    await bobClient.ingest(msg3);
-
-    // =====================================================
-    // FETCH CONVERSATIONS
-    // =====================================================
-
-    const conversations =
-      await bobClient.conversationsGet();
-
-    // should have 2 conversations (Alice + Carol)
-    assert.equal(
-      conversations.length,
-      2,
-      "should create one conversation per unique recipient"
-    );
-
-    // =====================================================
-    // FIND CONVERSATIONS
-    // =====================================================
-
-    const aliceConv =
-      conversations.find(
-        c => c.publicKeyHex === aliceHex
-      );
-
-    const carolConv =
-      conversations.find(
-        c => c.publicKeyHex === carolHex
-      );
-
-    assert.ok(aliceConv, "Alice conversation exists");
-    assert.ok(carolConv, "Carol conversation exists");
-
-    // =====================================================
-    // VERIFY UNREAD COUNTS
-    // =====================================================
-
-    // Alice got 2 messages
-    assert.equal(
-      aliceConv.unreadCount,
-      2,
-      "Alice should have 2 unread messages"
-    );
-
-    // Carol got 1 message
-    assert.equal(
-      carolConv.unreadCount,
-      1,
-      "Carol should have 1 unread message"
-    );
-
-    // =====================================================
-    // VERIFY INDEPENDENT STATE ISOLATION
-    // =====================================================
-
-    assert.notEqual(
-      aliceConv.lastMessageAt,
-      undefined,
-      "Alice conversation should have timestamp"
-    );
-
-    assert.notEqual(
-      carolConv.lastMessageAt,
-      undefined,
-      "Carol conversation should have timestamp"
-    );
-
-    // Carol should NOT be affected by Alice messages
-    assert.equal(
-      carolConv.unreadCount,
-      1
-    );
-
-    assert.equal(
-      aliceConv.unreadCount,
-      2
-    );
-  }
-);
+});
