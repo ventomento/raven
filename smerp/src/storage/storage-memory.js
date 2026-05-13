@@ -1,6 +1,6 @@
 // src/storage/storage-memory.js
 
-// Just a mock module for testing. Do not use in production.
+//  Mock module for testing. Do not use in production.
 
 import {
   StorageInterface,
@@ -182,7 +182,7 @@ export class StorageMemory
     return results;
   }
 
-  async relaysSeed(seedList = ["localhost"]) {
+  async relaysSeed(seedList = ["http://localhost:8080"]) {
 
     const defaultRelay = {
         enabled: true,

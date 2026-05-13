@@ -7,7 +7,7 @@ import {
   PublicIdentity,
 } from "../../smep/src/index.js";
 
-import { require } from "../../smep/src/util/util.js";
+import { insist } from "../../smep/src/util/util.js";
 import { StorageMemory } from "./storage/storage-memory.js";
 import { measureLag } from "./atx/lag-monitor.js";
 import { TransportDefault } from "./transport/transport-default.js";
@@ -21,7 +21,7 @@ export class SmerpClient {
     debug = true
   }) {
 
-    require(identity, PrivateIdentity);
+    insist(identity, PrivateIdentity);
 
     this.debug = debug;
     this.identity = identity;
@@ -72,10 +72,11 @@ export class SmerpClient {
 
     const options = {...requestPostOptions, body: envelopeBytes};
     const relays = await this.storage.relaysGet();
+    const pkh = await this.identity.exportPublicHex(); 
 
     const promises = relays.map( (relay) => {
 
-      const url = `${relay.relayUrl}/envelopes` + (relay.sid ? `?sid=${relay.sid}` : "");
+      const url = `${relay.relayUrl}/envelopes?pkh=${pkh}` + (relay.sid ? `&id=${relay.sid}` : "");
 
       return this.transporter.transport({
         url,
@@ -122,7 +123,9 @@ export class SmerpClient {
   
 }
 
+// =====================================================
 // module const
+// =====================================================
 
 const requestPostOptions = {
       method: "POST",
@@ -171,7 +174,7 @@ export class Ingestor {
     envelopeBytes
   ){
 
-    require(envelopeBytes, ArrayBuffer);
+    insist(envelopeBytes, ArrayBuffer);
 
     const receivedAt = Date.now();
 

@@ -25,8 +25,7 @@ import { decodeUtf8 } from "../encoding/utf8.js";
 import { bytesToHex } from "../encoding/hex.js";
 import { Serializer } from "../envelope/serializer.js";
 import { ContentTypes } from "../envelope/content-types.js";
-
-import { require } from "../util/util.js";
+import { insist } from "../util/util.js";
 
 // ============================================================
 // INTERNAL CRYPTO
@@ -156,10 +155,10 @@ export async function encrypt({
   plaintext,
   contentType = ContentTypes.TEXT_UTF8,
 }) {
-  require(sender, PrivateIdentity);
-  require(recipient, PublicIdentity);
-  require(plaintext);
-  require(contentType);
+  insist(sender, PrivateIdentity);
+  insist(recipient, PublicIdentity);
+  insist(plaintext);
+  insist(contentType);
 
   const envelope =
     await createEncryptedEnvelope({
@@ -176,8 +175,8 @@ export async function decrypt({
   identity,
   envelopeBytes,
 }) {
-  require(identity, PrivateIdentity);
-  require(envelopeBytes, ArrayBuffer);
+  insist(identity, PrivateIdentity);
+  insist(envelopeBytes, ArrayBuffer);
 
   const envelope = Serializer.unpack(envelopeBytes);
 

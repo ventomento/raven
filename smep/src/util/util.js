@@ -1,9 +1,9 @@
 /**
- * require - Lightweight runtime argument validator
+ * insist - Lightweight runtime argument validator
  * @param {*} arg
  * @param {string|Function|null} type
  */
-export function require(arg, type = null) {
+export function insist(arg, type = null) {
 
   if (arg === undefined || arg === null) {
     console.log("require debug: args=", arg, type);
