@@ -9,7 +9,7 @@ export class TransportDefault extends TransportInterface {
    * @param {RequestInit} [params.options]
    * @param {number} [params.timeout=10000]
    */
-  async transport({
+  static async transport({
     url,
     options = {},
     timeout = 10000,
@@ -26,7 +26,7 @@ export class TransportDefault extends TransportInterface {
         signal: controller.signal,
       });
 
-      const body = await response.text();
+      const body = await this.getResponseBody(response);
 
       const headers = Object.fromEntries(response.headers.entries());
 
@@ -44,5 +44,25 @@ export class TransportDefault extends TransportInterface {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  static async getResponseBody(response) {
+
+    const contentType = response.headers.get("content-type") || "";
+
+    // JSON
+    if (contentType.includes("application/json")) {
+      return await response.json();
+    }
+
+    // Binary data (images, files, buffers, etc.)
+    if (contentType.includes("application/octet-stream") ||
+        contentType.includes("image/") ||
+        contentType.includes("application/pdf")) {
+      return await response.arrayBuffer();     // or .blob()
+    }
+
+    // Text (HTML, plain text, CSV, etc.)
+    return await response.text();
   }
 }

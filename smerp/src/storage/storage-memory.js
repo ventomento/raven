@@ -185,6 +185,7 @@ export class StorageMemory
   async relaysSeed(seedList = ["http://localhost:8080"]) {
 
     const defaultRelay = {
+        
         enabled: true,
         lastSequenceId: null,
         lastSuccessAt: null,

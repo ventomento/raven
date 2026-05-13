@@ -6,6 +6,8 @@
 // conversations must be keyed by publicKeyHex.
 // relays must be keyed by relayUrl.
 
+// with keyed meaning unique field and record retrievable by key.
+
 export class StorageInterface {
 
   async initialize() {

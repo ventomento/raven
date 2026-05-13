@@ -1,15 +1,11 @@
 // src/server/smerp-server.js
-
 import http from "node:http";
 import { URL } from "node:url";
-
 import { StorageServer } from "./storage-server.js";
-
 import { Serializer } from "../../../smep/src/envelope/serializer.js";
-
 import { bytesToHex } from "../../../smep/src/encoding/hex.js";
 
-export class HttpServer {
+export class SmerpServer {
 
   constructor({
     storage = new StorageServer(),
@@ -68,6 +64,33 @@ export class HttpServer {
             res.end("Hello from smerp server, I am running!");
             return;
         }
+
+      // ========================================================
+      // GET /dump
+      // ========================================================
+
+      if (
+        req.method === "GET" &&
+        url.pathname === "/dump"
+      ) {
+
+        res.statusCode = 200;
+
+        res.setHeader(
+          "Content-Type",
+          "application/json"
+        );
+
+        res.end(
+          JSON.stringify(
+            this.storage.envelopesGet(),
+            null,
+            2
+          )
+        );
+
+        return;
+      }
 
       // ========================================================
       // POST /envelopes
@@ -169,12 +192,15 @@ export class HttpServer {
         unpacked.recipient_public_key
       );
 
+    const size = envelopeBuffer.byteLength;
+
     try {
 
       this.storage.envelopesPost({
         uuid,
         spkh,
         rpkh,
+        size,
         eb: envelopeBuffer,
       });
 

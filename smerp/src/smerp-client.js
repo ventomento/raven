@@ -9,8 +9,11 @@ import {
 
 import { insist } from "../../smep/src/util/util.js";
 import { StorageMemory } from "./storage/storage-memory.js";
-import { measureLag } from "./atx/lag-monitor.js";
+import { RequestBuilder } from "./request/request-builder.js";
 import { TransportDefault } from "./transport/transport-default.js";
+import { SyncEngine } from "./sync/sync-engine.js";
+
+const defaultConfig = {relaySeedList: [{relayUrl: "http://localhost:8080", type: "archive"}]}
 
 export class SmerpClient {
 
@@ -18,21 +21,42 @@ export class SmerpClient {
     identity,
     transporter = new TransportDefault(),
     storage = new StorageMemory(),
-    debug = true
+    debug = true,
+    config = defaultConfig
   }) {
 
     insist(identity, PrivateIdentity);
 
     this.debug = debug;
+    this.config = config;
     this.identity = identity;
     this.transporter = transporter;
     this.storage = storage;
+    this.syncEngine = new SyncEngine(this);
     this.ingestor = new Ingestor({
         storage: this.storage,
         identity: this.identity,
         emit: this.emit?.bind(this),
       });
 
+    if (this.debug){
+      console.log("Remember to start().");
+    }
+  }
+
+  async start(){
+    await this.seedRelays();
+    this.syncEngine.syncRelays(await this.storage.relaysGet());
+  }
+
+  async seedRelays(){
+    if ( (await this.relaysGet()).length === 0) {
+
+      for (const relay of this.config.relaySeedList) {
+        await this.storage.relaysPut(relay);
+      }
+
+    }
   }
 
   /* return: encrypted envelope bytes */
@@ -55,33 +79,17 @@ export class SmerpClient {
   }
 
   async ingest(envelopeBytes){
-
-    /*await measureLag(
-      async () => {
-        await this.ingestor.ingest(envelopeBytes) 
-      },
-      {
-        name : "smerp-client ingest",
-        debug: this.debug
-      }
-    );*/
-    await this.ingestor.ingest(envelopeBytes) 
+    await this.ingestor.ingest(envelopeBytes);
   }
 
   async dispatch(envelopeBytes){
-
-    const options = {...requestPostOptions, body: envelopeBytes};
     const relays = await this.storage.relaysGet();
-    const pkh = await this.identity.exportPublicHex(); 
 
     const promises = relays.map( (relay) => {
 
-      const url = `${relay.relayUrl}/envelopes?pkh=${pkh}` + (relay.sid ? `&id=${relay.sid}` : "");
-
       return this.transporter.transport({
-        url,
-        options,
-        timeout:10000
+        url: RequestBuilder.urlEnvelopesPost(relay),
+        options: RequestBuilder.optionsEnvelopesPost(envelopeBytes),
       })
 
     })
@@ -89,22 +97,16 @@ export class SmerpClient {
     return await Promise.allSettled(promises);
   }
 
+// =====================================================
   /* Public API */
+// =====================================================
 
   async sendData(
-    publicKeyHex, //Destination hex (may not send to this.identity)
+    publicKeyHex, 
     data
   ) {
 
-    const envelopeBytes = await measureLag(
-      async () => {
-        return await this.encryptData(publicKeyHex, data);
-      },
-      {
-        name : "smerp-client encrypt",
-        debug: this.debug
-      }
-    );
+    const envelopeBytes = await this.encryptData(publicKeyHex, data);
 
     return await this.dispatch(envelopeBytes);
   }
@@ -120,26 +122,18 @@ export class SmerpClient {
   async relaysGet(){
     return await this.storage.relaysGet();
   }
+
+  async relaysPut(relay){
+    return await this.storage.relaysPut(relay);
+  }
   
 }
-
-// =====================================================
-// module const
-// =====================================================
-
-const requestPostOptions = {
-      method: "POST",
-      headers: {
-        "Content-Type":
-          "application/octet-stream",
-      },
-    }; 
 
 // =====================================================
 // Ingestor
 // =====================================================
 
-export class Ingestor {
+class Ingestor {
 
   constructor({
     storage,
@@ -243,66 +237,40 @@ export class Ingestor {
     };
   }
 
-  // =====================================================
-  // CONVERSATION LOGIC
-  // =====================================================
+ // =====================================================
+// CONVERSATION LOGIC
+// =====================================================
 
   async upsertConversation(envelope) {
 
-    const publicKeyHex =
-      envelope.publicKeyHex;
+    const publicKeyHex = envelope.publicKeyHex;
 
-    const conversations =
+    const [existingConversation] =
       await this.storage.conversationsGet({
         publicKeyHex,
         limit: 1,
       });
 
-    let conversation =
-      conversations[0];
+    const conversation = {
+      ...(existingConversation ?? {}),
 
-    if (!conversation) {
-      conversation = this.createConversation(envelope);
-    } else {
-      conversation = this.updateConversation(
-        conversation,
-        envelope
-      );
-    }
-
-    await this.storage.conversationsPut(
-      conversation
-    );
-
-    return conversation;
-  }
-
-  createConversation(envelope) {
-
-    return {
-      publicKeyHex: envelope.publicKeyHex,
-      unreadCount: envelope.direction === "inbound" ? 1 : 0,
-      lastMessageAt: envelope.timestamp,
-    };
-  }
-
-  updateConversation(conversation, envelope) {
-
-    const isOutbound =
-      envelope.direction === "outbound";
-
-    return {
-      ...conversation,
+      publicKeyHex,
 
       unreadCount:
-        isOutbound
-          ? conversation.unreadCount
-          : conversation.unreadCount + 1,
+        (existingConversation?.unreadCount ?? 0) +
+        (envelope.direction === "outbound" ? 0 : 1),
 
-      lastMessageAt: 
-        conversation.lastMessageAt > envelope.timestamp ? conversation.lastMessageAt : envelope.timestamp,
+      lastMessageAt:
+        existingConversation &&
+        existingConversation.lastMessageAt > envelope.timestamp
+          ? existingConversation.lastMessageAt
+          : envelope.timestamp,
     };
-  }
+
+    await this.storage.conversationsPut(conversation);
+
+    return conversation;
+  } 
 
 }
 

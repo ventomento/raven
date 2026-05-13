@@ -1,0 +1,149 @@
+SMERP Relay HTTP API
+Version: 1
+
+
+======================================================================
+OVERVIEW
+======================================================================
+
+The SMERP relay server transports immutable SMEP encrypted envelopes
+between clients.
+
+Envelopes are opaque binary payloads.
+
+The relay server:
+
+- does not decrypt envelopes
+- does not modify envelopes
+- does not interpret encrypted content
+
+
+======================================================================
+POST /envelopes
+======================================================================
+
+Submit a SMEP encrypted envelope to the relay.
+
+Request:
+
+    POST /envelopes
+
+Headers:
+
+    Content-Type: application/octet-stream
+
+Body:
+
+    Raw binary SMEP envelope
+
+
+Success Response:
+
+    HTTP 200 OK
+
+    Empty body
+
+
+Behavior:
+
+- The envelope MUST be a valid serialized SMEP envelope
+- Duplicate UUIDs are treated as success
+- POST is therefore idempotent
+
+
+Possible Responses:
+
+-------------------------------------------------------------
+Status    Meaning
+-------------------------------------------------------------
+200       Envelope accepted
+400       Invalid request or invalid envelope
+500       Internal server error
+
+
+======================================================================
+GET /envelopes
+======================================================================
+
+Retrieve one envelope addressed to a recipient public key. 
+Server MUST order envelopes by "id asc" when returning an envelope. 
+
+Request:
+
+    GET /envelopes?pkh=<public_key>&id=<cursor>
+
+Query Parameters:
+
+-------------------------------------------------------------
+Parameter    Required    Description
+-------------------------------------------------------------
+pkh          yes         Public key hex
+id           no          Integer cursor value
+
+
+Behavior:
+
+- Returns at most one envelope per request
+- If id is omitted, id=0 is assumed
+- The server returns envelopes where:
+
+      record.id >= id
+
+- Exact ordering semantics are implementation-defined
+
+
+Success Response:
+
+    HTTP 200 OK
+
+Headers:
+
+    Content-Type: application/octet-stream
+
+    x-smerp-meta: {"id":123}
+
+Body:
+
+    Raw binary SMEP envelope
+
+
+No Envelope Available:
+
+    HTTP 204 No Content
+
+
+Possible Responses:
+
+-------------------------------------------------------------
+Status    Meaning
+-------------------------------------------------------------
+200       Envelope returned
+204       No envelope available
+400       Invalid request
+500       Internal server error
+
+
+======================================================================
+CLIENT SYNCHRONIZATION
+======================================================================
+
+Clients typically synchronize by:
+
+1. Requesting envelopes using a local cursor
+2. Processing returned envelopes
+3. Advancing the cursor using x-metadata.id
+4. Repeating the polling process
+
+
+======================================================================
+REFERENCE STATUS CODES
+======================================================================
+
+-------------------------------------------------------------
+Status    Meaning
+-------------------------------------------------------------
+200       Success
+204       No envelope available
+400       Invalid request
+404       Route not found
+500       Internal server error
