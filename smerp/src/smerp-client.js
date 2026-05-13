@@ -41,12 +41,6 @@ export class SmerpClient {
     data
   ) {
 
-    //console.log(await this.identity.exportPublicHex(), publicKeyHex);
-
-    if (await this.ingestor.isIdentity(publicKeyHex)){
-      throw new Error("smerp-client: cannot sendData to identity");
-    }
-    
     const recipient =
       await PublicIdentity.fromPublicHex(
         publicKeyHex
@@ -138,7 +132,9 @@ const requestPostOptions = {
       },
     }; 
 
+// =====================================================
 // Ingestor
+// =====================================================
 
 export class Ingestor {
 
@@ -175,10 +171,12 @@ export class Ingestor {
     envelopeBytes
   ){
 
+    require(envelopeBytes, ArrayBuffer);
+
     const receivedAt = Date.now();
 
     const envelope = await decrypt({
-      recipient: this.identity,
+      identity: this.identity,
       envelopeBytes
     });
 
@@ -192,6 +190,7 @@ export class Ingestor {
         });
 
     await this.storagePut(enriched);
+    return true;
   }
 
   async storagePut(envelope){

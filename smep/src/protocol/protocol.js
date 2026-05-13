@@ -105,17 +105,29 @@ export async function createEncryptedEnvelope({
 }
 
 export async function decryptEnvelope({
-  recipient,
+  identity,
   envelope,
 }) {
-  require(recipient, PrivateIdentity);
 
-  const senderPublicKey = await importPublicKey(
-    envelope.sender_public_key
-  );
+  // Note: attempt to decrypt envelope if identity can, that is, is either sender or recipient.
+  // Meaning that this will decrypt both inbound and outgoing messages.
+
+  const identityPublicHex = await identity.exportPublicHex();
+
+  const envelopeSenderPublicHex = bytesToHex(envelope.sender_public_key);
+  const envelopeRecipientPublicHex = bytesToHex(envelope.recipient_public_key);
+
+  let senderPublicKey;
+
+  if (identityPublicHex === envelopeSenderPublicHex){
+    // special case. Identity is sender, hence swap sender with recipient. As if recipient was sender.
+    senderPublicKey = (await PublicIdentity.fromPublicHex(envelopeRecipientPublicHex)).publicKey;
+  } else {
+    senderPublicKey = (await PublicIdentity.fromPublicHex(envelopeSenderPublicHex)).publicKey;
+  }
 
   let plaintext = await decryptBytes({
-    recipientPrivateKey: recipient.privateKey,
+    recipientPrivateKey: identity.privateKey,
     senderPublicKey,
     envelope,
   });
@@ -161,21 +173,23 @@ export async function encrypt({
 }
 
 export async function decrypt({
-  recipient,
+  identity,
   envelopeBytes,
 }) {
-  require(recipient, PrivateIdentity);
+  require(identity, PrivateIdentity);
   require(envelopeBytes, ArrayBuffer);
 
   const envelope = Serializer.unpack(envelopeBytes);
 
   return decryptEnvelope({
-    recipient,
+    identity,
     envelope,
   });
 }
 
+// ============================================================
 // identity
+// ============================================================
 
 export class PublicIdentity {
 
