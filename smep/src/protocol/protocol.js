@@ -164,6 +164,7 @@ export async function decrypt({
   recipient,
   envelopeBytes,
 }) {
+  require(recipient, PrivateIdentity);
   require(envelopeBytes, ArrayBuffer);
 
   const envelope = Serializer.unpack(envelopeBytes);

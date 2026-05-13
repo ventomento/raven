@@ -36,10 +36,10 @@ export class SmerpClient {
   }
 
   /* return: encrypted envelope bytes */
-  async encryptData({
+  async encryptData(
     publicKeyHex,
     data
-  }) {
+  ) {
 
     //console.log(await this.identity.exportPublicHex(), publicKeyHex);
 
@@ -62,16 +62,16 @@ export class SmerpClient {
 
   async ingest(envelopeBytes){
 
-    await measureLag(
+    /*await measureLag(
       async () => {
-        console.log("b2");
         await this.ingestor.ingest(envelopeBytes) 
       },
       {
         name : "smerp-client ingest",
         debug: this.debug
       }
-    );
+    );*/
+    await this.ingestor.ingest(envelopeBytes) 
   }
 
   async dispatch(envelopeBytes){
@@ -96,14 +96,14 @@ export class SmerpClient {
 
   /* Public API */
 
-  async sendData({
+  async sendData(
     publicKeyHex, //Destination hex (may not send to this.identity)
     data
-  }) {
+  ) {
 
     const envelopeBytes = await measureLag(
       async () => {
-        return await this.encryptData({publicKeyHex, data});
+        return await this.encryptData(publicKeyHex, data);
       },
       {
         name : "smerp-client encrypt",
@@ -176,6 +176,7 @@ export class Ingestor {
   ){
 
     const receivedAt = Date.now();
+
     const envelope = await decrypt({
       recipient: this.identity,
       envelopeBytes
