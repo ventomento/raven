@@ -46,7 +46,7 @@ export class SmerpClient {
 
   async start(){
     await this.seedRelays();
-    this.syncEngine.syncRelays(await this.storage.relaysGet());
+    this.syncEngine.syncRelays(await this.storage.relaysGet(), await this.identity.exportPublicHex());
   }
 
   async seedRelays(){
