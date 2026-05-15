@@ -46,7 +46,7 @@ export class SmerpClient {
 
   async start(){
     await this.seedRelays();
-    this.syncEngine.syncRelays(await this.storage.relaysGet(), await this.identity.exportPublicHex());
+    this.syncEngine.syncRelays();
   }
 
   async seedRelays(){
@@ -279,7 +279,7 @@ class Ingestor {
 
 # relay record:
 relayUrl
-enabled
+disabled;
 sid
 lastSuccessAt
 lastFailureAt
