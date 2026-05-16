@@ -20,7 +20,7 @@ export class SmerpClient {
 
   constructor({
     identity,
-    transporter = new TransportDefault(),
+    transporter = TransportDefault,
     storage = new StorageMemory(),
     debug = true,
     config = defaultConfig,
@@ -35,6 +35,7 @@ export class SmerpClient {
     this.transporter = transporter;
     this.storage = storage;
     this.logger = logger;
+    this.logger.debug = debug;
     this.ingestor = new Ingestor({
         storage: this.storage,
         identity: this.identity,
@@ -48,20 +49,28 @@ export class SmerpClient {
 
   async start(){
     await this.seedRelays();
+  }
+
+  async sync(){
 
     this.syncEngine = new SyncEngine({
       smerpClient: this,
       pkh: await this.identity.exportPublicHex()
     });
 
-    const streamResults = await this.syncEngine.syncRelays(await this.relaysGet());
+    const relays = await this.relaysGet();
+    const settledPromises = await this.syncEngine.syncRelays(relays);
+
+    this.logger.debugAdd({msg: "Sync done", settledPromises});
 
     this.logger.info(
         "sync complete. status:",
         {
-          streams: streamResults,
+          settledPromises,
         }
     );
+
+    return promises;
   }
 
   async seedRelays(){
@@ -98,18 +107,24 @@ export class SmerpClient {
   }
 
   async dispatch(envelopeBytes){
+
     const relays = await this.storage.relaysGet();
+    this.logger.debugAdd({msg: "entered dispatch and loaded following relays", relays});
 
     const promises = relays.map( (relay) => {
 
       return this.transporter.transport({
         url: RequestBuilder.urlEnvelopesPost(relay),
         options: RequestBuilder.optionsEnvelopesPost(envelopeBytes),
+        logger: this.logger
       })
 
     })
 
-    return await Promise.allSettled(promises);
+    const settledPromises = await Promise.allSettled(promises);
+    this.logger.debugAdd({msg: "dispatch settled promises: ", settledPromises});
+
+    return settledPromises;
   }
 
 // =====================================================
@@ -122,8 +137,9 @@ export class SmerpClient {
   ) {
 
     const envelopeBytes = await this.encryptData(publicKeyHex, data);
+    this.logger.debugAdd({msg: "created encrypted envelope", bytes: envelopeBytes});
 
-    return await this.dispatch(envelopeBytes);
+    await this.dispatch(envelopeBytes);
   }
 
   async conversationsGet(){

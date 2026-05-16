@@ -37,7 +37,8 @@ export class SyncEngine {
             return;
         }
 
-        const responseHandler = ResponseHandler(this.smerpClient, relay);
+        const responseHandler = factories.ResponseHandler(relay, this.smerpClient);
+
         let hasMore = null;
 
         do {  
@@ -57,4 +58,15 @@ export class SyncEngine {
         return await responseHandler.handle(response);
     }
     
+}
+
+const factories = {
+    ResponseHandler(relay, smerpClient){
+        return new ResponseHandler({
+            relay,
+            storage: smerpClient.storage,
+            ingestor: smerpClient.ingestor,
+            logger: smerpClient.logger
+        })
+    }
 }

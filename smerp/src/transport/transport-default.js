@@ -13,7 +13,12 @@ export class TransportDefault extends TransportInterface {
     url,
     options = {},
     timeout = 10000,
+    logger
   }) {
+
+    if (!logger){
+      throw new Error("transport void logger");
+    }
     const controller = new AbortController();
 
     const timeoutId = setTimeout(() => {
@@ -21,6 +26,8 @@ export class TransportDefault extends TransportInterface {
     }, timeout);
 
     try {
+      logger.debugAdd({msg: "attemting fetch", options});
+      
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
@@ -36,6 +43,8 @@ export class TransportDefault extends TransportInterface {
         body,
       };
     } catch (error) {
+      logger.debugAdd({msg: "transport fetch throwed", error});
+
       if (error.name === "AbortError") {
         throw new Error(`Request timeout after ${timeout}ms`);
       }

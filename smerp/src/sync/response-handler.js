@@ -1,7 +1,6 @@
 export class ResponseHandler {
 
-    constructor(
-        smerpClient,
+    constructor({
         relay,
         logger = {
             info : () => console.info,
@@ -10,10 +9,13 @@ export class ResponseHandler {
         },
         clock = { 
             now: () => Date.now() 
-        }
-    ) {
+        },
+        storage,
+        ingestor,
+    }) {
 
-        this.smerpClient = smerpClient;
+        this.storage = storage;
+        this.ingestor = ingestor;
         this.relay = relay;
         this.logger = logger;
         this.clock = clock;
@@ -43,7 +45,7 @@ export class ResponseHandler {
         }
 
         // persist updated relay
-        await this.smerpClient.relaysPut(this.relay);
+        await this.storage.relaysPut(this.relay);
 
         return this.nextCursor;
     }
@@ -70,7 +72,7 @@ export class ResponseHandler {
             this.handleInvalidCursor(cursor);
         }
 
-        else if (await this.smerpClient.ingest(body)) {
+        else if (await this.ingestor.ingest(body)) {
 
             this.relaySuccess(cursor);
             this.nextCursor = this.relay.cursor;
