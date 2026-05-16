@@ -12,6 +12,7 @@ import { StorageMemory } from "./storage/storage-memory.js";
 import { RequestBuilder } from "./request/request-builder.js";
 import { TransportDefault } from "./transport/transport-default.js";
 import { SyncEngine } from "./sync/sync-engine.js";
+import { LoggerDefault} from "./log/logger-default.js";
 
 const defaultConfig = {relaySeedList: [{relayUrl: "http://localhost:8080", type: "archive"}]}
 
@@ -22,7 +23,8 @@ export class SmerpClient {
     transporter = new TransportDefault(),
     storage = new StorageMemory(),
     debug = true,
-    config = defaultConfig
+    config = defaultConfig,
+    logger = LoggerDefault
   }) {
 
     insist(identity, PrivateIdentity);
@@ -32,7 +34,7 @@ export class SmerpClient {
     this.identity = identity;
     this.transporter = transporter;
     this.storage = storage;
-    this.syncEngine = new SyncEngine(this);
+    this.logger = logger;
     this.ingestor = new Ingestor({
         storage: this.storage,
         identity: this.identity,
@@ -46,7 +48,20 @@ export class SmerpClient {
 
   async start(){
     await this.seedRelays();
-    this.syncEngine.syncRelays();
+
+    this.syncEngine = new SyncEngine({
+      smerpClient: this,
+      pkh: await this.identity.exportPublicHex()
+    });
+
+    const streamResults = await this.syncEngine.syncRelays(await this.relaysGet());
+
+    this.logger.info(
+        "sync complete. status:",
+        {
+          streams: streamResults,
+        }
+    );
   }
 
   async seedRelays(){

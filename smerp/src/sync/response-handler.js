@@ -3,8 +3,14 @@ export class ResponseHandler {
     constructor(
         smerpClient,
         relay,
-        logger = console,
-        clock = { now: () => Date.now() }
+        logger = {
+            info : () => console.info,
+            warn : () => console.warn,
+            error: () => console.error
+        },
+        clock = { 
+            now: () => Date.now() 
+        }
     ) {
 
         this.smerpClient = smerpClient;
@@ -67,11 +73,6 @@ export class ResponseHandler {
         else if (await this.smerpClient.ingest(body)) {
 
             this.relaySuccess(cursor);
-            
-            if (this.relay.cursor !== cursor){
-                throw new Error("logic error");
-            }
-
             this.nextCursor = this.relay.cursor;
         }
 
@@ -127,6 +128,10 @@ export class ResponseHandler {
 
             cursor: cursor ?? this.relay.cursor,
         };
+
+        if (cursor && (this.relay.cursor !== cursor)){
+            throw new Error("logic error");
+        }
     }
 
     relayFailure(disabled = false) {

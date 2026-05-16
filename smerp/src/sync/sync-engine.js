@@ -1,6 +1,7 @@
-import { SmerpClient } from "../smerp-client";
-import { insist } from "../../../smep/src/util/util";
-import { RequestBuilder } from "../request/request-builder";
+import { SmerpClient } from "../smerp-client.js";
+import { insist } from "../../../smep/src/util/util.js";
+import { RequestBuilder } from "../request/request-builder.js";
+import { LoggerDefault} from "../log/logger-default.js";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
 import { ResponseHandler } from "./response-handler.js";
 
@@ -8,7 +9,7 @@ export class SyncEngine {
 
     constructor({
         smerpClient,
-        logger = console,
+        logger = LoggerDefault,
         pkh
     }) {
         insist(smerpClient, SmerpClient);
@@ -17,12 +18,12 @@ export class SyncEngine {
         this.transporter = smerpClient.transporter;
         this.logger = logger;
         this.pkh = pkh;
-        this.concurrencyLimiter = ConcurrencyLimiter(6);
+        this.concurrencyLimiter = new ConcurrencyLimiter(6);
 }
 
     async syncRelays(relays) {
 
-        return Promise.allSettled(
+        return await Promise.allSettled(
             relays.map(relay =>
                 this.syncRelay(relay)
             )
