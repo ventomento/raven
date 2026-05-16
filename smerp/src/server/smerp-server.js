@@ -1,3 +1,7 @@
+// ============================================================
+// MOCK SERVER FOR TESTING. DO NOT USE IN PRODUCTION.
+// ============================================================
+
 // src/server/smerp-server.js
 import http from "node:http";
 import { URL } from "node:url";
@@ -281,7 +285,7 @@ export class SmerpServer {
     );
 
     res.setHeader(
-      "x-metadata",
+      "x-smerp",
       JSON.stringify({
         id: record.id,
       })

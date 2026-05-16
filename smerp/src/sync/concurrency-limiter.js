@@ -1,5 +1,5 @@
 /**
- * Fair FIFO async concurrency limiter executor.
+ * Fair FIFO async concurrency limit executor. Put cap on concurrent executions.
  *
  * Guarantees:
  * - at most `limit` concurrent tasks
