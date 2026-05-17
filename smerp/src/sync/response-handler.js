@@ -2,187 +2,230 @@ export class ResponseHandler {
 
     constructor({
         relay,
-        logger, 
+        logger,
         storage,
         ingestor,
-        clock = { 
-            now: () => Date.now() 
+        clock = {
+            now: () => Date.now(),
         },
     }) {
 
-        if (!logger){
+        if (!logger) {
             throw new Error("Void logger");
         }
 
-        this.storage = storage;
-        this.ingestor = ingestor;
-        this.relay = relay;
-        this.logger = logger;
-        this.clock = clock;
-
-        if (typeof relay.cursor === 'undefined') {
-            this.relay.cursor = 0;
+        if (typeof relay.cursor === "undefined") {
+            relay.cursor = 0;
         }
+
+        this.deps = {
+            relay,
+            logger,
+            storage,
+            ingestor,
+            clock,
+        };
+
+        this.pipeline = [
+            checkTransportError,
+            checkExhausted,
+            parseSmerpHeaders,
+            validateSmerpCursor,
+            ingestBody,
+        ];
     }
 
-    // returns next cursor if more records else null
-    //
-    async handle({ status, headers, body }) {
+    async handle(response) {
 
-        let hasMore = null;
+        const ctx = {
+            ...this.deps,
 
-        if (status === 204) {
-            this.handle204(status);
+            response,
+
+            smerpHeaders: null,
+            cursor: null,
+
+            ingestOk: false,
+            exhausted: false,
+
+            stop: false,
+        };
+
+        for (const step of this.pipeline) {
+
+            if (ctx.stop) {
+                break;
+            }
+
+            await step(ctx);
         }
 
-        else if (status === 200) {
-            hasMore = await this.handle200(headers, body);
-        }
+        await ctx.storage.relaysPut(ctx.relay);
 
-        else {
-            this.handleNot200(status);
-        }
+        // false unless ingest succeeded.
+        return ctx.ingestOk;
+    }
+}
 
-        // persist updated relay
-        await this.storage.relaysPut(this.relay);
+// --------------------------------------------------
+// Pipe functions (mutators of ctx)
+// --------------------------------------------------
 
-        return hasMore;
+async function checkTransportError(ctx) {
+
+    const { status } = ctx.response;
+
+    if (status === 200 || status === 204) {
+        return;
     }
 
-    handle204(status) {
+    ctx.logger.error(
+        "relay transport failed",
+        {
+            relay: ctx.relay,
+            status,
+        }
+    );
 
-        this.logger.info(
-            "relay exhausted",
+    relayFailure(ctx);
+
+    ctx.stop = true;
+}
+
+async function checkExhausted(ctx) {
+
+    if (ctx.response.status !== 204) {
+        return;
+    }
+
+    ctx.logger.info(
+        "relay exhausted",
+        {
+            relay: ctx.relay,
+        }
+    );
+
+    ctx.exhausted = true;
+
+    relaySuccess(ctx);
+
+    ctx.stop = true;
+}
+
+async function parseSmerpHeaders(ctx) {
+    // sets ctx.cursor and ctx.smerpHeaders
+
+    try {
+
+        const meta =
+            ctx.response.headers["x-smerp"];
+
+        if (!meta) {
+            return;
+        }
+
+        ctx.smerpHeaders =
+            JSON.parse(meta);
+
+        ctx.cursor =
+            Number(ctx.smerpHeaders?.id);
+
+    } catch (err) {
+
+        ctx.logger.warn(
+            "invalid smerp header json",
             {
-                relay: this.relay,
-                status,
+                relay: ctx.relay,
+                error: err.message,
             }
         );
 
-        this.relaySuccess();
+        relayFailure(ctx);
+
+        ctx.stop = true;
+    }
+}
+
+async function validateSmerpCursor(ctx) {
+
+    const valid =
+        Number.isInteger(ctx.cursor) &&
+        ctx.cursor > ctx.relay.cursor;
+
+    if (valid) {
+        return;
     }
 
-    async handle200(headers, body) {
-
-        const cursor = Number(this.smerpHeaders(headers)?.id);
-
-        if (! this.validateSmerpCursor(cursor)) {
-            this.relayFailure();
+    ctx.logger.warn(
+        "invalid smerp cursor",
+        {
+            relay: ctx.relay,
+            smerpHeaders: ctx.smerpHeaders,
+            cursor: ctx.cursor,
         }
+    );
 
-        else if (await this.ingestor.ingest(body)) {
-            this.relaySuccess(cursor);
-            return cursor;
-        }
-        
-        else {
-            this.logger.warn(
-                "ingest failed",
-                {
-                    relay: this.relay,
-                    cursor,
-                }
-            );
-            this.logger.debugAdd({msg: "ingest failed", relay: this.relay, cursor});
-        }
+    relayFailure(ctx);
 
-        return null;
-    }
+    ctx.stop = true;
+}
 
-    handleNot200(status) {
+async function ingestBody(ctx) {
 
-        this.logger.error(
-            "relay transport failed",
+    ctx.ingestOk =
+        await ctx.ingestor.ingest(
+            ctx.response.body
+        );
+
+    if (!ctx.ingestOk) {
+
+        ctx.logger.warn(
+            "ingest failed",
             {
-                relay: this.relay,
-                status,
+                relay: ctx.relay,
+                cursor: ctx.cursor,
             }
         );
 
-        this.relayFailure();
+        ctx.stop = true;
+        return;
     }
 
-    decideRelayFate(){
-        if (this.relay.failureCount > 2) {
-            this.relay.disabled = true;
-        }
+    // only update cursor if ingest succeeded
+    relayUpdateCursor(ctx);
+
+    relaySuccess(ctx);
+}
+
+// --------------------------------------------------
+// Relay mutation helpers
+// --------------------------------------------------
+
+function relayUpdateCursor(ctx) {
+
+    if (ctx.cursor <= ctx.relay.cursor) {
+        throw new Error("cursor regression");
     }
 
-    relaySuccess(cursor = null) {
+    ctx.relay.cursor = ctx.cursor;
+}
 
-        this.relay = {
-            ...this.relay,
+function relaySuccess(ctx) {
 
-            lastSuccessAt: this.clock.now(),
+    ctx.relay.lastSuccessAt =
+        ctx.clock.now();
 
-            failureCount: 0, //reset failure count.
+    ctx.relay.failureCount = 0;
+}
 
-            cursor: cursor ?? this.relay.cursor,
-        };
+function relayFailure(ctx) {
 
-        if (cursor && (this.relay.cursor !== cursor)){
-            throw new Error("logic error");
-        }
-    }
+    ctx.relay.failureCount =
+        (ctx.relay.failureCount ?? 0) + 1;
 
-    relayFailure() {
+    ctx.relay.lastFailureAt =
+        ctx.clock.now();
 
-        this.relay = {
-            ...this.relay,
-
-            lastFailureAt: this.clock.now(),
-
-            failureCount:
-                (this.relay.failureCount ?? 0) + 1,
-        };
-
-        this.decideRelayFate();
-    }
-
-    validateSmerpCursor(cursor) {
-
-        const valid = Number.isInteger(cursor) && (cursor > this.relay.cursor);
-
-        if (valid) {
-
-            return true;
-
-        } else {
-
-            this.logger.warn(
-                "Invalid next smerp cursor (server probably doesn't implement protocol properly)",
-                {
-                    relay: this.relay,
-                    cursor,
-                }
-            );
-            this.logger.debugAdd({msg: "Invalid smerp cursor. Likely server doesn't implement protocol properly"});
-
-            return false;
-
-        }
-    }
-
-    smerpHeaders(headers) {
-
-        try {
-            const meta = headers["x-smerp"];
-
-            this.logger.debugAdd({msg: "RepsponseHandler, smerp headers - string", meta});
-
-            if (!meta) {
-                return null;
-            }
-
-            const smerpHeadersJson = JSON.parse(meta);
-            this.logger.debugAdd({msg: "RepsponseHandler, smerp headers - json", smerpHeadersJson});
-
-            return smerpHeadersJson;
-        }
-
-        catch {
-
-            return null;
-        }
-    }
+    ctx.relay.disabled =
+        ctx.relay.failureCount > 2;
 }

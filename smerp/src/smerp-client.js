@@ -12,7 +12,7 @@ import { StorageMemory } from "./storage/storage-memory.js";
 import { RequestBuilder } from "./request/request-builder.js";
 import { TransportDefault } from "./transport/transport-default.js";
 import { SyncEngine } from "./sync/sync-engine.js";
-import { LoggerDefault} from "./log/logger-default.js";
+import { LightLog } from "./log/light-log.js";
 
 const defaultConfig = {relaySeedList: [{relayUrl: "http://localhost:8080", type: "archive"}]}
 
@@ -24,7 +24,7 @@ export class SmerpClient {
     storage = new StorageMemory(),
     debug = true,
     config = defaultConfig,
-    logger = LoggerDefault
+    logger
   }) {
 
     insist(identity, PrivateIdentity);
@@ -34,7 +34,7 @@ export class SmerpClient {
     this.identity = identity;
     this.transporter = transporter;
     this.storage = storage;
-    this.logger = logger;
+    this.logger = logger ?? new LightLog({debug: this.debug});
     this.logger.debug = debug;
     this.ingestor = new Ingestor({
         storage: this.storage,
@@ -69,14 +69,7 @@ export class SmerpClient {
     const relays = await this.relaysGet();
     const promises = await this.syncEngine.syncRelays(relays);
 
-    this.logger.debugAdd({msg: "Sync done:", promises});
-
-    this.logger.info(
-        "sync complete. status:",
-        {
-          promises,
-        }
-    );
+    this.logger.info("Sync complete. Settled promises:", promises);
 
     return promises;
   }
@@ -317,7 +310,7 @@ class Ingestor {
 /* Record Models in storage 
 
 # relay record:
-relayUrl
+relayUrl (primaryKey)
 disabled;
 sid
 lastSuccessAt
@@ -325,17 +318,18 @@ lastFailureAt
 failureCount
 
 # envelope record:
+pubKeyHex (main query key)
 senderPublicKeyHex
 recipientPublicKeyHex
 contentType
 plaintext
 timestamp
-uuid
+uuid (primary key)
 relayUrl,
 receivedAt,
 
 #conversation record:
-publicKeyHex
+publicKeyHex (primaryKey)
 unreadCount
 lastMessageAt
 
