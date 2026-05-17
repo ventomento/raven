@@ -27,7 +27,7 @@ export class TransportDefault extends TransportInterface {
     }, timeout);
 
     try {
-      logger.debugAdd({msg: "Attempting to send request", url, options});
+      logger.debug("Transport sending request", {url, options});
 
       const response = await fetch(url, {
         ...options,
@@ -38,7 +38,7 @@ export class TransportDefault extends TransportInterface {
       const body = await this.getResponseBody(response);
       const headers = Object.fromEntries(response.headers.entries());
 
-      logger.debugAdd({msg: "Returned response", status, headers});
+      logger.debug("Transport received response", {status, headers});
 
       return {
         status,
@@ -48,7 +48,7 @@ export class TransportDefault extends TransportInterface {
 
     } catch (error) {
 
-      logger.debugAdd({msg: "transport fetch throwed", error});
+      logger.error("Transport error", {error});
 
       if (error.name === "AbortError") {
         throw new Error(`Request timeout after ${timeout}ms`);

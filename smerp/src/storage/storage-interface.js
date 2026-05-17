@@ -59,10 +59,32 @@ export class StorageInterface {
     );
   }
   
-  async relaysSeed(list) {
-    throw new Error(
-      "relaysSeed() not implemented"
-    );
-  }
-
 }
+
+/* Record Models in storage 
+
+# relay record:
+relayUrl (primaryKey)
+disabled;
+cursor
+lastSuccessAt
+lastFailureAt
+failureCount
+
+# envelope record:
+pubKeyHex (main get query key together with timestamp)
+senderPublicKeyHex (required)
+recipientPublicKeyHex (required)
+contentType (required)
+plaintext (required)
+timestamp (required)
+uuid (primary key)
+relayUrl,
+receivedAt,
+
+#conversation record:
+publicKeyHex (primaryKey)
+unreadCount
+lastMessageAt
+
+*/

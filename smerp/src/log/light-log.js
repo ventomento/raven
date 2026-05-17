@@ -5,10 +5,10 @@ export class LightLog {
     this.debug = debug;
     this.entries = [];
   }
-
-  debugLog(message, data = null) {
+  
+  warn(message, data = null) {
     if (!this.debug) return;
-    this.#addEntry("DEBUG", message, data);
+    this.#addEntry("WARN",message, data);
   }
 
   info(message, data = null) {
