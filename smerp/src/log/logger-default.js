@@ -6,14 +6,41 @@ export const LoggerDefault = {
     clock: { now: () => Date.now() },
 
     debug: false,
-    _debugTrace: [],
+    debugTrace: [],
 
     debugAdd(o) {
         if (this.debug) {
-            this._debugTrace.push({
-                s: JSON.stringify(o, null, 2),
+            this.debugTrace.push({
+                //s: JSON.stringify(o, null, 2),
+                s: safeStringify(o),
                 timestamp: this.clock.now()
             });
         }
     }
 };
+
+function serializeError(err) {
+    if (!(err instanceof Error)) return err;
+
+    return {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+        cause: err.cause,
+        code: err.code,
+        ...err
+    };
+}
+
+// 2. Safe Stringify
+function safeStringify(obj, space = 2) {
+    return JSON.stringify(obj, (key, value) => {
+        if (value instanceof Error) {
+            return serializeError(value);
+        }
+        if (value instanceof Promise) {
+            return "[Promise]";
+        }
+        return value;
+    }, space);
+}

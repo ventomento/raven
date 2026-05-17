@@ -1,7 +1,6 @@
 import { SmerpClient } from "../smerp-client.js";
 import { insist } from "../../../smep/src/util/util.js";
 import { RequestBuilder } from "../request/request-builder.js";
-import { LoggerDefault} from "../log/logger-default.js";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
 import { ResponseHandler } from "./response-handler.js";
 
@@ -9,14 +8,13 @@ export class SyncEngine {
 
     constructor({
         smerpClient,
-        logger = LoggerDefault,
-        pkh
+        pkh,
     }) {
         insist(smerpClient, SmerpClient);
 
         this.smerpClient = smerpClient;
         this.transporter = smerpClient.transporter;
-        this.logger = logger;
+        this.logger = smerpClient.logger;
         this.pkh = pkh;
         this.concurrencyLimiter = new ConcurrencyLimiter(6);
 }
@@ -24,35 +22,36 @@ export class SyncEngine {
     async syncRelays(relays) {
 
         return await Promise.allSettled(
-            relays.map(relay =>
-                this.syncRelay(relay)
+            relays
+            .filter(
+                relay => !relay.disabled
+            )
+            .map(
+                relay => this.syncRelay(factories.ResponseHandler(relay, this.smerpClient))
             )
         );
 
     }
 
-    async syncRelay(relay) {
-
-        if (relay.disabled){
-            return;
-        }
-
-        const responseHandler = factories.ResponseHandler(relay, this.smerpClient);
+    async syncRelay(responseHandler) {
 
         let hasMore = null;
+        let cnt = 0;
 
         do {  
+            cnt++;
             hasMore = await this.concurrencyLimiter.run(
                 () => this.nextEnvelope(responseHandler)
             );
-        } while ( hasMore );
+        } while ( hasMore && cnt < 50 );
 
     }
 
     async nextEnvelope(responseHandler) {
 
         const response = await this.transporter.transport({
-            url: RequestBuilder.urlEnvelopesGet(responseHandler.relay, this.pkh)
+            url: RequestBuilder.urlEnvelopesGet(responseHandler.relay, this.pkh),
+            logger: this.logger
         });
 
         return await responseHandler.handle(response);

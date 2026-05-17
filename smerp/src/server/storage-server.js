@@ -130,7 +130,7 @@ export class StorageServer {
       .sort((a, b) => a.id - b.id)   // sort ascending by id
       [0];                           // take only the first one (the next)
 
-    return nextRecord;
+    return nextRecord ? [nextRecord] : [];   // ← Always return array!
   }
 
 }

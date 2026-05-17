@@ -182,23 +182,4 @@ export class StorageMemory
     return results;
   }
 
-  async relaysSeed(seedList = ["http://localhost:8080"]) {
-
-    const defaultRelay = {
-        
-        enabled: true,
-        lastSequenceId: null,
-        lastSuccessAt: null,
-        lastFailureAt: null,
-        failureCount: 0,
-    };
-
-    for (const url of seedList) {
-        this.relaysPut({
-            relayUrl: url,
-            ...defaultRelay
-        });
-    }
-  }
-
 }

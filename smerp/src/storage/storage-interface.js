@@ -1,6 +1,7 @@
-// src/storage/storage-adapter.js
+// src/storage/storage-interface.js
 
 // All "Get" operations must return a list of js objects (maps/dicts).
+// If no records return empty list.
 
 // envelopes must be keyed by uuid.
 // conversations must be keyed by publicKeyHex.
@@ -9,18 +10,6 @@
 // with keyed meaning unique field and record retrievable by key.
 
 export class StorageInterface {
-
-  async initialize() {
-    throw new Error(
-      "initialize() not implemented"
-    );
-  }
-
-  async close() {
-    throw new Error(
-      "close() not implemented"
-    );
-  }
 
   // =========================================================
   // ENVELOPES

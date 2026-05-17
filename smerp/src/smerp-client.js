@@ -41,14 +41,22 @@ export class SmerpClient {
         identity: this.identity,
         emit: this.emit?.bind(this),
       });
-
-    if (this.debug){
-      console.log("Remember to start().");
-    }
   }
 
   async start(){
     await this.seedRelays();
+
+    this.syncIntervalId = setInterval(
+      this.sync,
+      60 * 1000   // every 1 minute
+    );
+  }
+
+  stop(){
+    if (typeof this.syncIntervalId !== "undefined"){
+      clearInterval(this.syncIntervalId);
+      this.intervalId = null;
+    }
   }
 
   async sync(){
@@ -59,14 +67,14 @@ export class SmerpClient {
     });
 
     const relays = await this.relaysGet();
-    const settledPromises = await this.syncEngine.syncRelays(relays);
+    const promises = await this.syncEngine.syncRelays(relays);
 
-    this.logger.debugAdd({msg: "Sync done", settledPromises});
+    this.logger.debugAdd({msg: "Sync done:", promises});
 
     this.logger.info(
         "sync complete. status:",
         {
-          settledPromises,
+          promises,
         }
     );
 

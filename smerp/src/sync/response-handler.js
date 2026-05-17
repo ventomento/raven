@@ -2,29 +2,26 @@ export class ResponseHandler {
 
     constructor({
         relay,
-        logger = {
-            info : () => console.info,
-            warn : () => console.warn,
-            error: () => console.error
-        },
+        logger, 
+        storage,
+        ingestor,
         clock = { 
             now: () => Date.now() 
         },
-        storage,
-        ingestor,
     }) {
+
+        if (!logger){
+            throw new Error("Void logger");
+        }
 
         this.storage = storage;
         this.ingestor = ingestor;
         this.relay = relay;
         this.logger = logger;
         this.clock = clock;
-        this.nextCursor = null;
 
-        if (!(this.relay.cursor >= 0)) {
-            throw new Error(
-                "ResponseHandler Constructor: unexpected relay.cursor"
-            );
+        if (typeof relay.cursor === 'undefined') {
+            this.relay.cursor = 0;
         }
     }
 
@@ -32,12 +29,14 @@ export class ResponseHandler {
     //
     async handle({ status, headers, body }) {
 
+        let hasMore = null;
+
         if (status === 204) {
             this.handle204(status);
         }
 
         else if (status === 200) {
-            await this.handle200(headers, body);
+            hasMore = await this.handle200(headers, body);
         }
 
         else {
@@ -47,7 +46,7 @@ export class ResponseHandler {
         // persist updated relay
         await this.storage.relaysPut(this.relay);
 
-        return this.nextCursor;
+        return hasMore;
     }
 
     handle204(status) {
@@ -65,41 +64,29 @@ export class ResponseHandler {
 
     async handle200(headers, body) {
 
-        const cursor = this.smerpHeaders(headers)?.id;
+        const cursor = Number(this.smerpHeaders(headers)?.id);
 
-        if (this.invalidSmerpCursor(cursor)) {
-
-            this.handleInvalidCursor(cursor);
+        if (! this.validateSmerpCursor(cursor)) {
+            this.relayFailure();
         }
 
         else if (await this.ingestor.ingest(body)) {
-
             this.relaySuccess(cursor);
-            this.nextCursor = this.relay.cursor;
+            return cursor;
         }
-
+        
         else {
             this.logger.warn(
-                "ingest rejected record",
+                "ingest failed",
                 {
                     relay: this.relay,
                     cursor,
                 }
             );
+            this.logger.debugAdd({msg: "ingest failed", relay: this.relay, cursor});
         }
-    }
 
-    handleInvalidCursor(cursor) {
-
-        this.logger.warn(
-            "relay disabled due to invalid next cursor (server doesn't implement protocol properly)",
-            {
-                relay: this.relay,
-                cursor,
-            }
-        );
-
-        this.relayFailure(true);
+        return null;
     }
 
     handleNot200(status) {
@@ -113,7 +100,9 @@ export class ResponseHandler {
         );
 
         this.relayFailure();
+    }
 
+    decideRelayFate(){
         if (this.relay.failureCount > 2) {
             this.relay.disabled = true;
         }
@@ -136,11 +125,7 @@ export class ResponseHandler {
         }
     }
 
-    relayFailure(disabled = false) {
-
-        if (typeof disabled !== "boolean") {
-            throw new Error("type error.");
-        }
+    relayFailure() {
 
         this.relay = {
             ...this.relay,
@@ -149,31 +134,50 @@ export class ResponseHandler {
 
             failureCount:
                 (this.relay.failureCount ?? 0) + 1,
-
-            disabled,
         };
+
+        this.decideRelayFate();
     }
 
-    invalidSmerpCursor(cursor) {
+    validateSmerpCursor(cursor) {
 
-        return !(
-            Number.isInteger(cursor) &&
-            cursor > this.relay.cursor
-        );
+        const valid = Number.isInteger(cursor) && (cursor > this.relay.cursor);
+
+        if (valid) {
+
+            return true;
+
+        } else {
+
+            this.logger.warn(
+                "Invalid next smerp cursor (server probably doesn't implement protocol properly)",
+                {
+                    relay: this.relay,
+                    cursor,
+                }
+            );
+            this.logger.debugAdd({msg: "Invalid smerp cursor. Likely server doesn't implement protocol properly"});
+
+            return false;
+
+        }
     }
 
     smerpHeaders(headers) {
 
         try {
+            const meta = headers["x-smerp"];
 
-            const meta = headers?.get?.("x-smerp");
+            this.logger.debugAdd({msg: "RepsponseHandler, smerp headers - string", meta});
 
             if (!meta) {
                 return null;
             }
 
-            return JSON.parse(meta);
+            const smerpHeadersJson = JSON.parse(meta);
+            this.logger.debugAdd({msg: "RepsponseHandler, smerp headers - json", smerpHeadersJson});
 
+            return smerpHeadersJson;
         }
 
         catch {

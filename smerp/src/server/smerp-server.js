@@ -241,7 +241,7 @@ export class SmerpServer {
       url.searchParams.get("pkh");
 
     const idRaw =
-      url.searchParams.get("id");
+      url.searchParams.get("cursor");
 
     if (!pkh) {
       res.statusCode = 400;

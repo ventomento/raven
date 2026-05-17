@@ -2,7 +2,7 @@
 export class RequestBuilder {
 
     static urlEnvelopesGet(relay, pkh){
-      return `${relay.relayUrl}/envelopes?pkh=${pkh}` + (relay.cursor ? `&id=${relay.cursor}` : "");
+      return `${relay.relayUrl}/envelopes?pkh=${pkh}` + `&cursor=${relay.cursor}`;
     }
 
     static urlEnvelopesPost(relay){

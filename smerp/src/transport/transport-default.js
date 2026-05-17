@@ -9,6 +9,7 @@ export class TransportDefault extends TransportInterface {
    * @param {RequestInit} [params.options]
    * @param {number} [params.timeout=10000]
    */
+
   static async transport({
     url,
     options = {},
@@ -26,23 +27,27 @@ export class TransportDefault extends TransportInterface {
     }, timeout);
 
     try {
-      logger.debugAdd({msg: "attemting fetch", options});
-      
+      logger.debugAdd({msg: "Attempting to send request", url, options});
+
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
       });
 
+      const status = response.status;
       const body = await this.getResponseBody(response);
-
       const headers = Object.fromEntries(response.headers.entries());
 
+      logger.debugAdd({msg: "Returned response", status, headers});
+
       return {
-        status: response.status,
+        status,
         headers,
         body,
       };
+
     } catch (error) {
+
       logger.debugAdd({msg: "transport fetch throwed", error});
 
       if (error.name === "AbortError") {
