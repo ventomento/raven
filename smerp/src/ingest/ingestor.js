@@ -1,45 +1,47 @@
+
+import { decrypt, PrivateIdentity } from "../../../smep/src/index.js";
+import { insist } from "../../../smep/src/util/util.js";
+
 // =====================================================
 // Ingestor
 // =====================================================
 
-class Ingestor {
+export class Ingestor {
 
   constructor({
     storage,
     identity,
+    localPublicHex,
+    logger,
     emit = null,
   }) {
 
+    insist(identity, PrivateIdentity);
+    insist(storage);
+    insist(localPublicHex);
+    insist(logger);
+
     this.storage = storage;
     this.identity = identity;
+    this.localPublicHex = localPublicHex;
+    this.logger = logger;
     this.emit = emit;
   }
 
-  async getLocalPublicHex(){
-
-    if ( this.localPublicHex === undefined ){
-      this.localPublicHex = await this.identity.exportPublicHex();
-    }
+  isIdentity(publicHex){
     
-    return this.localPublicHex;
-  }
+    return (this.localPublicHex === publicHex);
 
-  async isIdentity(publicHex){
-    
-    return (await this.getLocalPublicHex()) === publicHex;
   }
 
   // =====================================================
   // PUBLIC ENTRY
   // =====================================================
 
-  async ingest(
-    envelopeBytes
-  ){
+  async ingest(envelopeBytes) {
+    this.logger.info("Ingestor: Ingest attempt:");
 
     insist(envelopeBytes, ArrayBuffer);
-
-    const receivedAt = Date.now();
 
     const envelope = await decrypt({
       identity: this.identity,
@@ -50,17 +52,21 @@ class Ingestor {
       return false;
     }
 
-    const enriched = await this.buildEnrichedEnvelope({
-        envelope,
-        receivedAt,
-        });
-
-    await this.storagePut(enriched);
+    await this.envelopePersist(
+        await this.buildEnrichedEnvelope({
+            envelope,
+            receivedAt: Date.now(),
+        })
+    )
+    
     return true;
   }
 
-  async storagePut(envelope){
+  async envelopePersist(envelope){
     await this.storage.envelopesPut(envelope);
+
+    this.logger.info("Ingestor: ingest success:", {uuid: envelope.uuid});
+
     await this.upsertConversation(envelope);
   }
 
@@ -88,7 +94,7 @@ class Ingestor {
     receivedAt,
   }) {
 
-    const outbound = await this.isIdentity( envelope.senderPublicKeyHex );
+    const outbound = this.isIdentity( envelope.senderPublicKeyHex );
 
     const publicKeyHex =
       outbound

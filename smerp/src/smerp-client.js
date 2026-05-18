@@ -12,8 +12,8 @@ import { RequestBuilder } from "./request/request-builder.js";
 import { TransportDefault } from "./transport/transport-default.js";
 import { SyncEngine } from "./sync/sync-engine.js";
 import { LightLog } from "./log/light-log.js";
+import { Ingestor } from "./ingest/ingestor.js";
 
-const defaultConfig = {relaySeedList: [{relayUrl: "http://localhost:8080", type: "archive"}]}
 
 export class SmerpClient {
 
@@ -22,23 +22,16 @@ export class SmerpClient {
     transporter = TransportDefault,
     storage = new StorageMemory(),
     debug = true,
-    config = defaultConfig,
     logger = new LightLog({debug}),
   }) {
 
     insist(identity, PrivateIdentity);
 
     this.debug = debug;
-    this.config = config;
     this.identity = identity;
     this.transporter = transporter;
     this.storage = storage;
     this.logger = logger;
-    this.ingestor = new Ingestor({
-        storage: this.storage,
-        identity: this.identity,
-        emit: this.emit?.bind(this),
-      });
   }
   
   // =====================================================
@@ -57,7 +50,16 @@ export class SmerpClient {
   }
 
   async start(){
+
     await this.seedRelays();
+
+    this.ingestor = new Ingestor({
+        storage: this.storage,
+        identity: this.identity,
+        localPublicHex: await this.identity.exportPublicHex(),
+        logger: this.logger,
+        emit: this.emit?.bind(this),
+      });
     
     this.syncEngine = new SyncEngine({
       smerpClient: this,
@@ -65,9 +67,8 @@ export class SmerpClient {
     });
 
     this.sync();
-
     this.syncIntervalId = setInterval(
-      this.sync,
+      () => this.sync(), // make closure on this
       60 * 1000   // every 1 minute
     );
   }
@@ -83,25 +84,12 @@ export class SmerpClient {
 
   async sync(){
 
-    const relays = await this.relaysGet();
+    const relays = await this.storage.relaysGet();
     const promises = await this.syncEngine.syncRelays(relays);
 
-    this.logger.info("Sync Complete. Relays and Settled Promises:", {relays, promises});
     return promises;
   }
 
-  async seedRelays(){
-
-    this.logger.info("Seeding relays from config");
-
-    if ( (await this.relaysGet()).length === 0) {
-
-      for (const relay of this.config.relaySeedList) {
-        await this.storage.relaysPut(relay);
-      }
-
-    }
-  }
 
   /* return: encrypted envelope bytes */
   async encryptData(publicKeyHex, data) {
@@ -124,7 +112,7 @@ export class SmerpClient {
     const relays = await this.storage.relaysGet();
 
     const promises = relays.map( (relay) => {
-      this.dispatchMiddleware(relay, envelopeBytes, this.transporter);
+      return this.dispatchMiddleware(relay, envelopeBytes, this.transporter);
     })
     
     const successfulRelayUrls = 
@@ -132,7 +120,6 @@ export class SmerpClient {
     .filter(result => result.status === "fulfilled")
     .map(result => result.value);
 
-    this.logger.info("Dispatch tried relays: ", {relays});
     this.logger.info("Dispatch Successfully uploaded to relays:", {successfulRelayUrls});
     return successfulRelayUrls;
   }
@@ -151,6 +138,27 @@ export class SmerpClient {
     }
 
     return relay.relayUrl;
+  }
+  
+  async seedRelays(){
+    this.logger.info("Seeding relays");
+
+    // Todo: seed from config.  
+
+    if(this.debug){
+      await this.seedRelaysDebug();
+    }
+  }
+
+  async seedRelaysDebug() {
+    const relaySeedList = [{relayUrl: "http://localhost:8080", type: "archive"}];
+
+    this.logger.info("Seeding debug relays (localhost)", {seedList: relaySeedList});
+
+    for (const relay of relaySeedList) {
+      await this.storage.relaysPut({...relay});
+    }
+
   }
 
 }

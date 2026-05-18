@@ -1,3 +1,6 @@
+import { insist } from "../../../smep/src/util/util.js";
+import { Ingestor } from "../ingest/ingestor.js";
+
 export class ResponseHandler {
 
     constructor({
@@ -9,17 +12,19 @@ export class ResponseHandler {
             now: () => Date.now(),
         },
     }) {
-
-        if (!logger) {
-            throw new Error("Void logger");
-        }
+        
+        insist(relay);
+        insist(logger);
+        insist(storage);
+        insist(ingestor, Ingestor);
 
         if (typeof relay.cursor === "undefined") {
             relay.cursor = 0;
         }
 
+        this.relay = relay;
+
         this.deps = {
-            relay,
             logger,
             storage,
             ingestor,
@@ -33,12 +38,15 @@ export class ResponseHandler {
             validateSmerpCursor,
             ingestBody,
         ];
+
     }
 
     async handle(response) {
 
         const ctx = {
             ...this.deps,
+            
+            relay: this.relay,
 
             response,
 
@@ -46,8 +54,6 @@ export class ResponseHandler {
             cursor: null,
 
             ingestOk: false,
-            exhausted: false,
-
             stop: false,
         };
 
@@ -60,7 +66,8 @@ export class ResponseHandler {
             await step(ctx);
         }
 
-        await ctx.storage.relaysPut(ctx.relay);
+        await ctx.storage.relaysPut(ctx.relay); // persist in storage
+        this.relay = ctx.relay                  // update class instance (should be same obj anyways)
 
         // false unless ingest succeeded.
         return ctx.ingestOk;
@@ -88,7 +95,6 @@ async function checkTransportError(ctx) {
     );
 
     relayFailure(ctx);
-
     ctx.stop = true;
 }
 
@@ -98,17 +104,7 @@ async function checkExhausted(ctx) {
         return;
     }
 
-    ctx.logger.info(
-        "relay exhausted",
-        {
-            relay: ctx.relay,
-        }
-    );
-
-    ctx.exhausted = true;
-
     relaySuccess(ctx);
-
     ctx.stop = true;
 }
 
@@ -171,15 +167,17 @@ async function validateSmerpCursor(ctx) {
 }
 
 async function ingestBody(ctx) {
+    ctx.logger.info("ResponseHandler attemting ingest");
 
     ctx.ingestOk =
         await ctx.ingestor.ingest(
             ctx.response.body
         );
 
+
     if (!ctx.ingestOk) {
 
-        ctx.logger.warn(
+        ctx.logger.info(
             "ingest failed",
             {
                 relay: ctx.relay,
@@ -193,7 +191,6 @@ async function ingestBody(ctx) {
 
     // only update cursor if ingest succeeded
     relayUpdateCursor(ctx);
-
     relaySuccess(ctx);
 }
 
@@ -207,6 +204,7 @@ function relayUpdateCursor(ctx) {
         throw new Error("cursor regression");
     }
 
+    ctx.logger.info("relay updating cursor", {cursor: ctx.cursor, oldCursor:ctx.relay.cursor})
     ctx.relay.cursor = ctx.cursor;
 }
 

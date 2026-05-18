@@ -27,7 +27,6 @@ export class TransportDefault extends TransportInterface {
     }, timeout);
 
     try {
-      logger.debug("Transport sending request", {url, options});
 
       const response = await fetch(url, {
         ...options,
@@ -38,7 +37,9 @@ export class TransportDefault extends TransportInterface {
       const body = await this.getResponseBody(response);
       const headers = Object.fromEntries(response.headers.entries());
 
-      logger.debug("Transport received response", {status, headers});
+      if (status === 200){
+        logger.info("Transport received 200 response", {status, headers});
+      }
 
       return {
         status,

@@ -7,6 +7,8 @@
 // conversations must be keyed by publicKeyHex.
 // relays must be keyed by relayUrl.
 
+// put operations must return the key of the record it inserted.
+
 // with keyed meaning unique field and record retrievable by key.
 
 export class StorageInterface {

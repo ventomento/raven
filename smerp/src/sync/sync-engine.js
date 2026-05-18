@@ -21,7 +21,7 @@ export class SyncEngine {
 
     async syncRelays(relays) {
 
-        return await Promise.allSettled(
+        const settled = await Promise.allSettled(
             relays
             .filter(
                 relay => !relay.disabled
@@ -30,6 +30,12 @@ export class SyncEngine {
                 relay => this.syncRelay(factories.ResponseHandler(relay, this.smerpClient))
             )
         );
+
+        settled
+        .filter(x => x.status === "rejected")
+        .forEach(x => {
+            this.logger.info("Sync Process rejection: ", x.reason);
+        });
 
     }
 
