@@ -1,0 +1,928 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IndexedDbStorage Test</title>
+
+  <style>
+    body {
+      font-family: monospace;
+      padding: 20px;
+    }
+
+    .pass {
+      color: green;
+    }
+
+    .fail {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+
+<h1>IndexedDbStorage Tests</h1>
+
+<div id="output"></div>
+
+<script type="module">
+
+import {
+  IndexedDbStorage,
+} from "./indexeddb-storage.js";
+
+const output =
+  document.getElementById(
+    "output"
+  );
+
+function log(
+  message,
+  ok = true
+) {
+
+  const div =
+    document.createElement(
+      "div"
+    );
+
+  div.className =
+    ok ? "pass" : "fail";
+
+  div.textContent =
+    `${ok ? "PASS" : "FAIL"}: ${message}`;
+
+  output.appendChild(div);
+}
+
+function assert(
+  condition,
+  message
+) {
+
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+async function test(
+  name,
+  fn
+) {
+
+  try {
+
+    await fn();
+
+    log(name, true);
+
+  } catch (err) {
+
+    console.error(err);
+
+    log(
+      `${name} -> ${err.message}`,
+      false
+    );
+  }
+}
+
+function deepEqual(
+  a,
+  b
+) {
+
+  return (
+    JSON.stringify(a) ===
+    JSON.stringify(b)
+  );
+}
+
+(async () => {
+
+  const dbKey =
+    `test-${Date.now()}`;
+
+  const storage =
+    new IndexedDbStorage(
+      dbKey
+    );
+
+  await storage.init();
+
+  //
+  // conversations
+  //
+
+  await test(
+    "conversationsPut returns primary key",
+    async () => {
+
+      const record = {
+        publicKeyHex: "pk1",
+        unreadCount: 3,
+        lastMessageAt: 100,
+      };
+
+      const key =
+        await storage.conversationsPut(
+          record
+        );
+
+      assert(
+        key === "pk1",
+        "wrong key returned"
+      );
+    }
+  );
+
+  await test(
+    "conversationsGet by key",
+    async () => {
+
+      const result =
+        await storage.conversationsGet({
+          publicKeyHex:
+            "pk1",
+        });
+
+      assert(
+        result.length === 1,
+        "expected one record"
+      );
+
+      assert(
+        result[0].publicKeyHex ===
+          "pk1",
+        "wrong record"
+      );
+    }
+  );
+
+  await test(
+    "conversationsGet all",
+    async () => {
+
+      const all =
+        await storage.conversationsGet(
+          {}
+        );
+
+      assert(
+        all.length >= 1,
+        "expected records"
+      );
+    }
+  );
+
+  await test(
+    "conversation detached copy",
+    async () => {
+
+      const [record] =
+        await storage.conversationsGet({
+          publicKeyHex:
+            "pk1",
+        });
+
+      record.unreadCount =
+        9999;
+
+      const [again] =
+        await storage.conversationsGet({
+          publicKeyHex:
+            "pk1",
+        });
+
+      assert(
+        again.unreadCount !==
+          9999,
+        "storage mutated"
+      );
+    }
+  );
+
+  await test(
+    "conversation put replaces existing record",
+    async () => {
+
+      await storage.conversationsPut({
+        publicKeyHex:
+          "pk1",
+        unreadCount: 7,
+      });
+
+      const [record] =
+        await storage.conversationsGet({
+          publicKeyHex:
+            "pk1",
+        });
+
+      assert(
+        record.unreadCount === 7,
+        "replacement failed"
+      );
+
+      assert(
+        !(
+          "lastMessageAt" in
+          record
+        ),
+        "record merged instead of replaced"
+      );
+    }
+  );
+
+  //
+  // relays
+  //
+
+  await test(
+    "relay roundtrip",
+    async () => {
+
+      const relay = {
+        relayUrl:
+          "wss://relay.test",
+        relayType:
+          "readwrite",
+        disabled:
+          false,
+      };
+
+      const key =
+        await storage.relaysPut(
+          relay
+        );
+
+      assert(
+        key ===
+          relay.relayUrl,
+        "wrong key"
+      );
+
+      const result =
+        await storage.relaysGet({
+          relayUrl:
+            relay.relayUrl,
+        });
+
+      assert(
+        result.length === 1,
+        "missing relay"
+      );
+
+      assert(
+        deepEqual(
+          result[0],
+          relay
+        ),
+        "relay mismatch"
+      );
+    }
+  );
+
+  await test(
+    "relay detached copy",
+    async () => {
+
+      const [relay] =
+        await storage.relaysGet({
+          relayUrl:
+            "wss://relay.test",
+        });
+
+      relay.disabled =
+        true;
+
+      const [again] =
+        await storage.relaysGet({
+          relayUrl:
+            "wss://relay.test",
+        });
+
+      assert(
+        again.disabled ===
+          false,
+        "storage mutated"
+      );
+    }
+  );
+
+  //
+  // envelopes
+  //
+
+  const envelopes = [
+    {
+      uuid: "e1",
+      publicKeyHex:
+        "conversationA",
+      senderPublicKeyHex:
+        "s",
+      recipientPublicKeyHex:
+        "r",
+      contentType:
+        "text/plain",
+      plaintext:
+        "msg1",
+      timestamp:
+        100,
+    },
+    {
+      uuid: "e2",
+      publicKeyHex:
+        "conversationA",
+      senderPublicKeyHex:
+        "s",
+      recipientPublicKeyHex:
+        "r",
+      contentType:
+        "text/plain",
+      plaintext:
+        "msg2",
+      timestamp:
+        200,
+    },
+    {
+      uuid: "e3",
+      publicKeyHex:
+        "conversationA",
+      senderPublicKeyHex:
+        "s",
+      recipientPublicKeyHex:
+        "r",
+      contentType:
+        "text/plain",
+      plaintext:
+        "msg3",
+      timestamp:
+        300,
+    },
+  ];
+
+  await test(
+    "envelope puts",
+    async () => {
+
+      for (
+        const env of envelopes
+      ) {
+
+        const key =
+          await storage.envelopesPut(
+            env
+          );
+
+        assert(
+          key === env.uuid,
+          "wrong key"
+        );
+      }
+    }
+  );
+
+  await test(
+    "envelope get by uuid",
+    async () => {
+
+      const result =
+        await storage.envelopesGet({
+          uuid: "e2",
+        });
+
+      assert(
+        result.length === 1,
+        "missing envelope"
+      );
+
+      assert(
+        result[0].uuid ===
+          "e2",
+        "wrong envelope"
+      );
+    }
+  );
+
+  await test(
+    "envelope get by conversation ordered desc",
+    async () => {
+
+      const result =
+        await storage.envelopesGet({
+          publicKeyHex:
+            "conversationA",
+        });
+
+      assert(
+        result.length === 3,
+        "wrong count"
+      );
+
+      assert(
+        result[0].timestamp ===
+          300,
+        "not newest first"
+      );
+
+      assert(
+        result[1].timestamp ===
+          200,
+        "wrong order"
+      );
+
+      assert(
+        result[2].timestamp ===
+          100,
+        "wrong order"
+      );
+    }
+  );
+
+  await test(
+    "beforeTimestamp is exclusive",
+    async () => {
+
+      const result =
+        await storage.envelopesGet({
+          publicKeyHex:
+            "conversationA",
+          beforeTimestamp:
+            300,
+        });
+
+      assert(
+        result.length === 2,
+        "wrong count"
+      );
+
+      assert(
+        result[0].timestamp ===
+          200,
+        "wrong first"
+      );
+
+      assert(
+        result[1].timestamp ===
+          100,
+        "wrong second"
+      );
+    }
+  );
+
+  await test(
+    "limit works",
+    async () => {
+
+      const result =
+        await storage.envelopesGet({
+          publicKeyHex:
+            "conversationA",
+          limit: 2,
+        });
+
+      assert(
+        result.length === 2,
+        "wrong limit"
+      );
+
+      assert(
+        result[0].timestamp ===
+          300,
+        "wrong record"
+      );
+
+      assert(
+        result[1].timestamp ===
+          200,
+        "wrong record"
+      );
+    }
+  );
+
+  await test(
+    "envelope detached copy",
+    async () => {
+
+      const [env] =
+        await storage.envelopesGet({
+          uuid: "e1",
+        });
+
+      env.plaintext =
+        "modified";
+
+      const [again] =
+        await storage.envelopesGet({
+          uuid: "e1",
+        });
+
+      assert(
+        again.plaintext ===
+          "msg1",
+        "storage mutated"
+      );
+    }
+  );
+
+  //
+  // empty result semantics
+  //
+
+  await test(
+    "missing conversation returns []",
+    async () => {
+
+      const result =
+        await storage.conversationsGet({
+          publicKeyHex:
+            "does-not-exist",
+        });
+
+      assert(
+        Array.isArray(
+          result
+        ),
+        "not array"
+      );
+
+      assert(
+        result.length === 0,
+        "expected empty array"
+      );
+    }
+  );
+
+  await test(
+    "missing relay returns []",
+    async () => {
+
+      const result =
+        await storage.relaysGet({
+          relayUrl:
+            "missing",
+        });
+
+      assert(
+        result.length === 0,
+        "expected empty array"
+      );
+    }
+  );
+
+  await test(
+    "missing envelope returns []",
+    async () => {
+
+      const result =
+        await storage.envelopesGet({
+          uuid:
+            "missing",
+        });
+
+      assert(
+        result.length === 0,
+        "expected empty array"
+      );
+    }
+  );
+
+  //
+// Additional envelope query diagnostics
+//
+
+await test(
+  "insert second conversation envelopes",
+  async () => {
+
+    await storage.envelopesPut({
+      uuid: "e4",
+      publicKeyHex:
+        "conversationB",
+      senderPublicKeyHex:
+        "s",
+      recipientPublicKeyHex:
+        "r",
+      contentType:
+        "text/plain",
+      plaintext:
+        "msg4",
+      timestamp:
+        400,
+    });
+
+    await storage.envelopesPut({
+      uuid: "e5",
+      publicKeyHex:
+        "conversationB",
+      senderPublicKeyHex:
+        "s",
+      recipientPublicKeyHex:
+        "r",
+      contentType:
+        "text/plain",
+      plaintext:
+        "msg5",
+      timestamp:
+        500,
+    });
+
+    const all =
+      await storage.envelopesGet();
+
+    console.log(
+      "after insert",
+      all
+    );
+
+    assert(
+      all.length === 5,
+      `expected 5 envelopes, got ${all.length}`
+    );
+  }
+);
+
+await test(
+  "verify publicKeyHex values in store",
+  async () => {
+
+    const all =
+      await storage.envelopesGet();
+
+    const keys =
+      all.map(
+        x => x.publicKeyHex
+      );
+
+    console.log(
+      "publicKeyHex values",
+      keys
+    );
+
+    assert(
+      keys.includes(
+        "conversationA"
+      ),
+      "missing conversationA"
+    );
+
+    assert(
+      keys.includes(
+        "conversationB"
+      ),
+      "missing conversationB"
+    );
+  }
+);
+
+await test(
+  "query conversationA by publicKeyHex only",
+  async () => {
+
+    const result =
+      await storage.envelopesGet({
+        publicKeyHex:
+          "conversationA",
+      });
+
+    console.log(
+      "conversationA query result",
+      result
+    );
+
+    assert(
+      result.length === 3,
+      `expected 3 envelopes, got ${result.length}`
+    );
+
+    assert(
+      result.every(
+        x =>
+          x.publicKeyHex ===
+          "conversationA"
+      ),
+      "returned envelope from wrong conversation"
+    );
+
+    assert(
+      result[0].timestamp ===
+        300,
+      "expected newest first"
+    );
+
+    assert(
+      result[1].timestamp ===
+        200,
+      "expected newest first"
+    );
+
+    assert(
+      result[2].timestamp ===
+        100,
+      "expected newest first"
+    );
+  }
+);
+
+await test(
+  "query conversationB by publicKeyHex only",
+  async () => {
+
+    const result =
+      await storage.envelopesGet({
+        publicKeyHex:
+          "conversationB",
+      });
+
+    console.log(
+      "conversationB query result",
+      result
+    );
+
+    assert(
+      result.length === 2,
+      `expected 2 envelopes, got ${result.length}`
+    );
+
+    assert(
+      result.every(
+        x =>
+          x.publicKeyHex ===
+          "conversationB"
+      ),
+      "returned envelope from wrong conversation"
+    );
+
+    assert(
+      result[0].timestamp ===
+        500,
+      "expected newest first"
+    );
+
+    assert(
+      result[1].timestamp ===
+        400,
+      "expected newest first"
+    );
+  }
+);
+
+await test(
+  "query conversationA with beforeTimestamp",
+  async () => {
+
+    const result =
+      await storage.envelopesGet({
+        publicKeyHex:
+          "conversationA",
+        beforeTimestamp:
+          300,
+      });
+
+    console.log(
+      "conversationA beforeTimestamp=300",
+      result
+    );
+
+    assert(
+      result.length === 2,
+      `expected 2 envelopes, got ${result.length}`
+    );
+
+    assert(
+      result[0].timestamp ===
+        200,
+      "wrong first result"
+    );
+
+    assert(
+      result[1].timestamp ===
+        100,
+      "wrong second result"
+    );
+  }
+);
+
+await test(
+  "query conversationA with limit",
+  async () => {
+
+    const result =
+      await storage.envelopesGet({
+        publicKeyHex:
+          "conversationA",
+        limit: 2,
+      });
+
+    console.log(
+      "conversationA limit=2",
+      result
+    );
+
+    assert(
+      result.length === 2,
+      `expected 2 envelopes, got ${result.length}`
+    );
+
+    assert(
+      result[0].timestamp ===
+        300,
+      "wrong first result"
+    );
+
+    assert(
+      result[1].timestamp ===
+        200,
+      "wrong second result"
+    );
+  }
+);
+
+await test(
+  "query nonexistent conversation",
+  async () => {
+
+    const result =
+      await storage.envelopesGet({
+        publicKeyHex:
+          "conversationC",
+      });
+
+    console.log(
+      "conversationC query result",
+      result
+    );
+
+    assert(
+      result.length === 0,
+      "expected empty array"
+    );
+  }
+);
+
+await test(
+  "dump index keys directly",
+  async () => {
+
+    const tx =
+      storage.db.transaction(
+        "envelopes",
+        "readonly"
+      );
+
+    const store =
+      tx.objectStore(
+        "envelopes"
+      );
+
+    const index =
+      store.index(
+        "conversationTimestamp"
+      );
+
+    await new Promise(
+      (resolve, reject) => {
+
+        const request =
+          index.openCursor();
+
+        request.onsuccess =
+          (event) => {
+
+            const cursor =
+              event.target.result;
+
+            if (!cursor) {
+              resolve();
+              return;
+            }
+
+            console.log(
+              "INDEX KEY:",
+              cursor.key
+            );
+
+            console.log(
+              "INDEX VALUE:",
+              cursor.value
+            );
+
+            cursor.continue();
+          };
+
+        request.onerror =
+          () => reject(
+            request.error
+          );
+      }
+    );
+  }
+);
+
+  await storage.close();
+
+})();
+</script>
+
+</body>
+</html>
