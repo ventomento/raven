@@ -187,11 +187,8 @@ async function ingestBody(ctx) {
             }
         );
 
-        ctx.stop = true;
-        return;
-    }
+    } 
 
-    // only update cursor if ingest succeeded
     relayUpdateCursor(ctx);
     relaySuccess(ctx);
 }
