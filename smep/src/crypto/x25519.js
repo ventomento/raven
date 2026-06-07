@@ -70,6 +70,25 @@ export async function exportPublicKeyBytes(publicKey) {
   return new Uint8Array(raw);
 }
 
+export function isClampedX25519Scalar(scalar) {
+
+  if (! (scalar instanceof Uint8Array)){
+    console.error("Type Error: isClampedX25519Scalar");
+    return false;
+  }
+
+  if (scalar.length !== 32) {
+    console.error("isclampedX25519: invalid key length");
+    return false;
+  }
+
+  return (
+    (scalar[0] & 0x07) === 0 &&
+    (scalar[31] & 0x80) === 0 &&
+    (scalar[31] & 0x40) === 0x40
+  );
+}
+
 /**
  * Imports a clamped X25519 scalar (as hex) into Web Crypto
  * and returns both the private key and its corresponding public key.
@@ -78,8 +97,12 @@ export async function importPrivateKey(scalarHex) {
   // Convert hex string to Uint8Array
   const clampedScalar = hexToBytes(scalarHex);
 
-  if (clampedScalar.length !== 32) {
-    throw new Error("X25519 private scalar must be exactly 32 bytes (64 hex characters)");
+  if(! isClampedX25519Scalar(clampedScalar)) {
+    throw new Error("ImportPrivateKey: not clamped scalar");
+  }
+
+  if ( !(clampedScalar.length === 32)) {
+    throw new Error("Invalid X25519 private scalar must be exactly 32 bytes (64 hex characters) and clamped");
   }
 
   // 1. Build PKCS#8
@@ -127,7 +150,7 @@ export async function importPrivateKey(scalarHex) {
 }
 
 export async function exportPrivateKey(privateKey) {
-  // exports hex of private scalar (clamped seed).
+  // exports hex of private scalar.
 
   const pkcs8 = new Uint8Array(
     await crypto.subtle.exportKey(
@@ -137,6 +160,10 @@ export async function exportPrivateKey(privateKey) {
   );
 
   const clampedScalar = pkcs8.slice(-32);
+  
+  if (! isClampedX25519Scalar(clampedScalar)){
+    throw new Error("exportPrivateKey: invalid clamped scalar");
+  }
 
   return bytesToHex(clampedScalar);
 }

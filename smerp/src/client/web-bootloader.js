@@ -174,6 +174,8 @@ class BtnLoad {
                 "Failed to load identity:",
                 err
             );
+
+            alert(err);
         }
     }
 
