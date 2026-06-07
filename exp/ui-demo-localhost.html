@@ -1,5 +1,6 @@
-// Quick localhost Mock UI test for experimenting. 
+// Quick localhost Mock UI for experimenting. 
 // Serve this file via python3 -m hhtp.server <port> 
+// You need a mock smerp server running on localhost:8080 
 
 <!DOCTYPE html>
 <html lang="en">
@@ -41,18 +42,19 @@
             PrivateIdentity,
             SmerpClient,
             WebBootloader,    
-        } from "./index.js";
-        
-
-        // -------------------------------------------------
-        // Example identity
-        // -------------------------------------------------
-        // Replace with your real identity initialization
-        // if you already have one.
-        // -------------------------------------------------
+        } from "../index.js";
 
         const identity = await PrivateIdentity.generate();
 
+
+        const appEl = document.getElementById("app");
+        appEl.klass = new WebBootloader({
+            el: appEl,
+            debug:true
+        });
+        appEl.klass.hydrate();
+        
+        // Test entities for experimenting.
         // bob identity.
         window.bobIdentity = await PrivateIdentity.generate();
         window.bobPublicHex = await bobIdentity.exportPublicHex();
@@ -62,14 +64,6 @@
         window.tomIdentity = await PrivateIdentity.generate();
         window.tomPublicHex = await tomIdentity.exportPublicHex();
         window.tomSmerpClient = new SmerpClient({identity: tomIdentity, debug:true});
-
-        const appEl = document.getElementById("app");
-        appEl.klass = new WebBootloader({
-            el: appEl,
-            debug:true
-        });
-        appEl.klass.hydrate();
-
     </script>
 
 </body>
