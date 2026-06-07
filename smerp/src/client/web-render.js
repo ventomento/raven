@@ -1,12 +1,9 @@
-import { SmerpClient } from "./smerp-client.js";
 import {
-    PrivateIdentity,
     insist,
 } from "../../../smep/src/index.js";
 import { StateTypes } from "./states.js";
 import { DomForge } from "../domforge/domforge.js"
 import { installStyles } from "./web-styles.js";
-import { IndexedDbStorage } from "../storage/indexeddb/indexeddb-storage.js";
 import { SmerpUi } from "./smerp-ui.js";
 
 export class WebRender {
@@ -136,7 +133,7 @@ export class WebRender {
                 lst.push(DomForge.label("Public Address"));
                 lst.push(DomForge.p("0x" + publicKeyHex));
                 lst.push(DomForge.label("Private Key"));
-                lst.push(DomForge.p(privateKeyHex));
+                lst.push(DomForge.p("0x" + privateKeyHex));
                 lst.push(DomForge.label("Important"));
                 lst.push(DomForge.p("Make a backup of this."));
                 break;
