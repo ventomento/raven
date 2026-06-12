@@ -14,7 +14,7 @@ export class TransportDefault extends TransportInterface {
     url,
     options = {},
     timeout = 10000,
-    logger
+    logger,
   }) {
 
     if (!logger){

@@ -1,0 +1,60 @@
+Browser Fetch API
+
+options arg: 
+
+interface RequestInit {
+  // Request method
+  method?: string;                    // e.g. 'GET', 'POST', 'PUT', 'DELETE', 'PATCH'...
+
+  // Headers
+  headers?: Headers | Record<string, string> | string[][];
+
+  // Body
+  body?: BodyInit | null;             // string | Blob | BufferSource | FormData | URLSearchParams | ReadableStream
+
+  // Cache mode
+  cache?: RequestCache;               // 'default' | 'no-store' | 'reload' | 'no-cache' | 'force-cache' | 'only-if-cached'
+
+  // Credentials (cookies)
+  credentials?: RequestCredentials;   // 'omit' | 'same-origin' | 'include'
+
+  // Redirect handling
+  redirect?: RequestRedirect;         // 'follow' | 'error' | 'manual'
+
+  // Referrer policy
+  referrer?: string;
+  referrerPolicy?: ReferrerPolicy;    // 'no-referrer', 'no-referrer-when-downgrade', 'origin', ...
+
+  // CORS mode
+  mode?: RequestMode;                 // 'cors' | 'no-cors' | 'same-origin' | 'navigate'
+
+  // Abort signal
+  signal?: AbortSignal | null;
+
+  // Keep connection alive (for keep-alive requests)
+  keepalive?: boolean;
+
+  // Priority (newer browsers)
+  priority?: RequestPriority;         // 'auto' | 'high' | 'low'
+
+  // Integrity (Subresource Integrity)
+  integrity?: string;
+
+  // Window (rarely used)
+  window?: null;                      // must be null if present
+}
+
+Example:
+
+const options = {
+  method: "POST",                    // default: 'GET'
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer token"
+  },
+  body: JSON.stringify(data),        // only for methods that allow body
+  credentials: "include",            // send cookies
+  cache: "no-cache",
+  signal: abortController.signal,    // for timeout/cancellation
+  keepalive: true,                   // useful for sendBeacon-like behavior
+};

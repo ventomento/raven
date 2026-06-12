@@ -1,4 +1,6 @@
+import { PrivateIdentity } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
+import { AuthHandler } from "../auth/auth-handler.js";
 import { RequestBuilder } from "../request/request-builder.js";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
 import { ResponseHandler } from "./response-handler.js";
@@ -6,6 +8,7 @@ import { ResponseHandler } from "./response-handler.js";
 export class SyncEngine {
 
     constructor({
+        identity,
         transporter,
         storage,
         ingestor,
@@ -14,12 +17,14 @@ export class SyncEngine {
         
     }) {
 
+        insist(identity, PrivateIdentity);
         insist(transporter);
         insist(storage);
         insist(ingestor);
         insist(logger);
         insist(pkh);
 
+        this.identity;
         this.transporter = transporter;
         this.logger = logger;
         this.storage = storage;
@@ -49,7 +54,8 @@ export class SyncEngine {
     }
 
     async syncRelay(relay) {
-        const responseHandler = this.newResponseHandler(relay);
+        const handlers = this.getRelayHandlers(relay);
+        // relay stream
 
         let hasMore = null;
         let cnt = 0;
@@ -57,31 +63,49 @@ export class SyncEngine {
         do {  
             cnt++;
             hasMore = await this.concurrencyLimiter.run(
-                () => this.nextEnvelope(responseHandler)
+                () => this.nextEnvelope(handlers)
             );
         } while ( hasMore && cnt < 50 );
 
     }
 
-    async nextEnvelope(responseHandler) {
+    async nextEnvelope(handlers) {
+
+        const {responseHandler, authHandler} = handlers;
 
         const response = await this.transporter.transport({
             url: RequestBuilder.urlEnvelopesGet(responseHandler.relay, this.pkh),
+            options:
+                {
+                    headers: {...authHandler.getHeaders()}
+                }, 
             logger: this.logger
         });
 
         return await responseHandler.handle(response);
     }
 
-    newResponseHandler(relay){
+    getRelayHandlers(relay) {
 
-        return new ResponseHandler({
-            relay,
-            logger: this.logger,
-            storage: this.storage,
-            ingestor: this.ingestor    
-        })
-                
+        return {
+
+            authHandler: 
+                AuthHandler({
+                    identity: this.identity,
+                    relay,
+                    transporter: this.transporter
+                }),
+
+            responseHandler:
+                ResponseHandler({
+                    relay,
+                    logger: this.logger,
+                    storage: this.storage,
+                    ingestor: this.ingestor    
+
+                })
+        }
+
     }
-    
+
 }

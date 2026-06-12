@@ -9,6 +9,10 @@ export class RequestBuilder {
         return `${relay.relayUrl}/envelopes`;
     }
 
+    static urlIntentsPost(relay){
+        return `${relay.relayUrl}/challenge`;
+    }
+
     static optionsEnvelopesPost(envelopeBytes){
         return {...postOptions, body: envelopeBytes};
     }

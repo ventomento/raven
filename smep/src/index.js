@@ -1,6 +1,8 @@
 import { 
   encrypt, 
   decrypt,
+  authSessionKey,
+  authSign
 } from "./protocol/protocol.js";
 
 import { PrivateIdentity, PublicIdentity } from "./identity/identity.js";

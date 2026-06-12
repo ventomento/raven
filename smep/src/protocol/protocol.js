@@ -21,12 +21,13 @@ import {
 
 import { randomIV } from "../crypto/random.js";
 import { generateUuidBytes } from "../encoding/uuid.js";
-import { encodePlaintext } from "../encoding/plaintext.js";
-import { decodeUtf8 } from "../encoding/utf8.js";
+import { encodeUtf8, decodeUtf8 } from "../encoding/utf8.js";
 import { bytesToHex } from "../encoding/hex.js";
 import { Serializer } from "../envelope/serializer.js";
 import { ContentTypes } from "../envelope/content-types.js";
 import { insist } from "../util/util.js";
+import { sha256 } from "../crypto/hash.js";
+import { hmacSha256 } from "../crypto/hmac.js";
 
 // ============================================================
 // INTERNAL CRYPTO
@@ -75,6 +76,26 @@ async function decryptBytes({
 // ============================================================
 // ENVELOPE LAYER
 // ============================================================
+
+function encodePlaintext(
+  plaintext
+) {
+
+  // plaintext protocol data abstraction. = bytes or string.
+
+  if (typeof plaintext == "string") {
+    return encodeUtf8(plaintext);
+  }
+
+  if (
+    (plaintext instanceof Uint8Array) ||
+    (plaintext instanceof ArrayBuffer)
+  ) {
+    return plaintext;
+  }
+
+  throw new Error("Type Error");
+}
 
 export async function createEncryptedEnvelope({
   sender,
@@ -149,6 +170,40 @@ export async function decryptEnvelope({
 // ============================================================
 // HIGH-LEVEL API
 // ============================================================
+
+export async function authSign(
+  symKey
+){
+  insist(symKey, Uint8Array);
+
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const timestampEncoded = encodeUtf8(timestamp);
+
+  const signature = await hmacSha256(symKey, timestampEncoded);
+
+  return {
+    signature,
+    timestamp
+  }
+}
+
+export async function authSessionKey({
+  identity,
+  ephemeralPublicKeyHex,
+}) {
+
+  insist(identity, PrivateIdentity);
+  insist(ephemeralPublicKeyHex, "string");
+
+  const ephemeralPublicKey = await importPublicKey(ephemeralPublicKeyHex);
+
+  const sharedSecret = await deriveSharedSecret(
+    identity.privateKey,
+    ephemeralPublicKey
+  );
+
+  return await sha256(sharedSecret);
+}
 
 export async function encrypt({
   sender,

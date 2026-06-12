@@ -1,8 +1,11 @@
 // src/encoding/utf8.js
 
 export function encodeUtf8(str) {
+  
   if (typeof str !== "string") {
-    throw new TypeError("Expected string");
+    throw new TypeError(
+      `Expected string, got ${typeof str}: ${String(str)}`
+    );
   }
 
   const encoder = new TextEncoder();

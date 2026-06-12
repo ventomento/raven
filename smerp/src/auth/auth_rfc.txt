@@ -1,0 +1,139 @@
+# SMERP Authentication Protocol (SAP) v1
+
+## 1. Overview
+
+SAP provides proof-of-possession authentication for clients identified by X25519 keypairs.
+
+Authentication establishes a short-lived session key derived from an X25519 Diffie-Hellman exchange. Subsequent requests are authenticated using HMAC-SHA256.
+
+HTTPS/TLS is REQUIRED.
+
+## 2. Session Establishment
+
+Client:
+
+```http
+POST /intents
+```
+
+Body:
+
+```json
+{
+  "pkh": "<client-public-key-hex>"
+}
+```
+
+Server:
+
+1. Generates an ephemeral X25519 keypair.
+
+2. Computes:
+
+   ```text
+   shared_secret =
+       X25519(server_ephemeral_private,
+              client_public)
+   ```
+
+3. Derives:
+
+   ```text
+   session_key = SHA256(shared_secret)
+   ```
+
+4. Stores:
+
+   ```text
+   pkh
+   created_at
+   expires_at
+   session_key
+   ```
+
+5. Destroys the ephemeral private key.
+
+Response:
+
+```json
+{
+  "ephemeral_pkh": "<server-ephemeral-public-key-hex>"
+}
+```
+
+Client:
+
+```text
+shared_secret =
+    X25519(client_private,
+           server_ephemeral_public)
+
+session_key = SHA256(shared_secret)
+```
+
+The client retains only `session_key`.
+
+## 3. Authenticated Requests
+
+Client sends:
+
+```http
+X-Smerp-Auth-Timestamp: <unix_timestamp>
+X-Smerp-Auth-Signature: <signature>
+```
+
+Where:
+
+```text
+signature =
+    HMAC-SHA256(
+        session_key,
+        timestamp
+    )
+```
+
+Note: timestamp must be uft-8 encoded when used in hmac calculation. !!!!! 
+
+## 4. Verification
+
+Server:
+
+1. Determines the client identity associated with the request.
+
+2. Loads the corresponding session.
+
+3. Verifies:
+
+   ```text
+   current_server_time < expires_at
+   ```
+
+4. Verifies:
+
+   ```text
+   HMAC-SHA256(
+       session_key,
+       timestamp
+   )
+   ```
+
+If both checks succeed, the request is authenticated.
+
+## 5. Expiration
+
+When no valid session exists, the server responds:
+
+```http
+401 Unauthorized
+X-Smerp-Auth-Unauthorized: expired
+```
+
+The client SHALL perform a new `/intents` exchange and retry the request.
+
+## 6. Security Considerations
+
+* Authentication proves possession of the X25519 private key corresponding to `pkh`.
+* The server stores only the derived `session_key`.
+* Ephemeral private keys SHALL NOT be retained.
+* Replay protection is not provided by SAP.
+* Session validity is determined solely by server-maintained expiration state.
