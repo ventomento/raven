@@ -22,11 +22,7 @@ export class AuthHandler {
 
     }
 
-    async getHeaders(expired=false) {
-
-        if (expired){
-            this.clearSession();
-        }
+    async getHeaders() {
 
         if (!this.sessionKey) {
             await this.createSession();
@@ -37,8 +33,8 @@ export class AuthHandler {
         );
 
         return {
-            "x-smerp-auth-timestamp": timestamp,
-            "x-smerp-auth-signature": signature
+            "x-smerp-timestamp": timestamp,
+            "x-smerp-signature": signature
         };
 
     }
@@ -52,7 +48,7 @@ export class AuthHandler {
         const response = await this.transporter.transport(
             this.endpointUrl,
             {
-                method: "POST",
+                method: "PUT",
                 headers: {
                     "Content-Type": "application/json"
                 },

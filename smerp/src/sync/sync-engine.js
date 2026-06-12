@@ -4,6 +4,7 @@ import { AuthHandler } from "../auth/auth-handler.js";
 import { RequestBuilder } from "../request/request-builder.js";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
 import { ResponseHandler } from "./response-handler.js";
+import { EnvelopeStream } from "./envelope-stream.js";
 
 export class SyncEngine {
 
@@ -54,58 +55,30 @@ export class SyncEngine {
     }
 
     async syncRelay(relay) {
-        const handlers = this.getRelayHandlers(relay);
-        // relay stream
 
-        let hasMore = null;
+        const envelopeStream = 
+            new envelopeStream({
+                identity: this.identity,
+                relay,
+                transporter: this.transporter,
+                logger: this.logger
+            })
+
+        let envelopeBytes = null;
         let cnt = 0;
 
-        do {  
+        do { 
+
             cnt++;
-            hasMore = await this.concurrencyLimiter.run(
-                () => this.nextEnvelope(handlers)
+
+            envelopeBytes = await this.concurrencyLimiter.run(
+                () => envelopeStream.next()
             );
-        } while ( hasMore && cnt < 50 );
+
+            await this.storage.relaysPut(relay); 
+            await this.ingestor.ingest(envelopeBytes);
+
+        } while ( envelopeBytes && cnt < 50 );
 
     }
-
-    async nextEnvelope(handlers) {
-
-        const {responseHandler, authHandler} = handlers;
-
-        const response = await this.transporter.transport({
-            url: RequestBuilder.urlEnvelopesGet(responseHandler.relay, this.pkh),
-            options:
-                {
-                    headers: {...authHandler.getHeaders()}
-                }, 
-            logger: this.logger
-        });
-
-        return await responseHandler.handle(response);
-    }
-
-    getRelayHandlers(relay) {
-
-        return {
-
-            authHandler: 
-                AuthHandler({
-                    identity: this.identity,
-                    relay,
-                    transporter: this.transporter
-                }),
-
-            responseHandler:
-                ResponseHandler({
-                    relay,
-                    logger: this.logger,
-                    storage: this.storage,
-                    ingestor: this.ingestor    
-
-                })
-        }
-
-    }
-
 }

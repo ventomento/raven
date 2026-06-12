@@ -203,7 +203,6 @@ function relayUpdateCursor(ctx) {
         throw new Error("cursor regression");
     }
 
-    ctx.logger.info("relay updating cursor", {cursor: ctx.cursor, oldCursor:ctx.relay.cursor})
     ctx.relay.cursor = ctx.cursor;
 }
 
