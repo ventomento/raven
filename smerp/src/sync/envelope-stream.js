@@ -1,13 +1,20 @@
 import { insist, PrivateIdentity } from "../../../smep/src/index.js";
-import { TransportDefault } from "../transport/transport-default";
+import { TransportDefault } from "../transport/transport-default.js";
 import { RequestBuilder } from "../request/request-builder.js";
+import { AuthHandler } from "../auth/auth-handler.js";
 
-const SMERP_HEADERS = {
+const SMERP_HEADERS = Object.freeze({
     cursor: "x-smerp-cursor",
     signature: "x-smerp-signature",
     timestamp: "x-smerp-timestamp",
-    unauthorized: "x-smerp-unauthorized"
-}
+    unauthorized: "x-smerp-unauthorized",
+});
+
+const STATUS = Object.freeze({
+    OK: 200,
+    NO_CONTENT: 204,
+    UNAUTHORIZED: 401,
+});
 
 export class EnvelopeStream {
 
@@ -22,177 +29,184 @@ export class EnvelopeStream {
     }) {
 
         insist(identity, PrivateIdentity);
-        
+
         this.identity = identity;
         this.relay = relay;
-        this.relay.cursor = this.relay.cursor || 0;
+        this.relay.cursor ??= 0;
+
         this.transporter = transporter;
         this.logger = logger;
+        this.clock = clock;
 
         this.authHandler = new AuthHandler({
-            identity: this.identity,
+            identity,
             relay,
-            transporter: this.transporter
+            transporter,
         });
     }
 
+    // ------------------------------------------------------------------
+    // Public API
+    // ------------------------------------------------------------------
 
-    /*
-    * return: next envelope or null
-    */
     async next() {
 
-        const summary = this.doNext();
+        let result = await this.processResponse(
+            await this.envelopesGet()
+        );
 
-        return summary ? summary.envelope : null;
+        if (result?.type === "reauth") {
 
-    }
-
-    // private
-
-    async doNext() {
-
-        let summary = 
-            await this.processResponse(
+            result = await this.processResponse(
                 await this.envelopesGet()
             );
-        
-        if (summary && summary.reauth)  {
-
-            summary = 
-                await this.processResponse(
-                    await this.envelopesGet()
-                );
-            
         }
 
-        return summary;
-
+        return result?.type === "envelope"
+            ? result.envelope
+            : null;
     }
+
+    // ------------------------------------------------------------------
+    // Transport
+    // ------------------------------------------------------------------
 
     async envelopesGet() {
 
-        return await this.transporter.transport({
-            url: 
-                RequestBuilder.urlEnvelopesGet(
-                    responseHandler.relay, this.identity.publicKeyHex
-                ),
-            options:
-                {
-                    headers: {...await this.authHandler.getHeaders()}
-                }, 
-            logger: 
-                this.logger
+        return this.transporter.transport({
+            url: RequestBuilder.urlEnvelopesGet(
+                this.relay,
+                this.identity.publicKeyHex
+            ),
+            options: {
+                headers: await this.authHandler.getHeaders(),
+            },
+            logger: this.logger,
         });
-
     }
+
+    // ------------------------------------------------------------------
+    // Protocol
+    // ------------------------------------------------------------------
 
     processResponse(response) {
 
-        let res;
-        // res {envelope, reauth}
-
         switch (response.status) {
 
-            case 200:
-                // "envelope
-                res = this.on200();
+            case STATUS.OK:
+                return this.on200(response);
 
-            case 204:
-                // "exhausted"
-                res = this.on204();
+            case STATUS.NO_CONTENT:
+                return this.on204(response);
 
-            case 401:
-                // unauthorized
-                res = this.on401();
+            case STATUS.UNAUTHORIZED:
+                return this.on401(response);
 
             default:
-                // unsupported
-                res = this.onUnsupported();
+                return this.onUnsupported(response);
         }
-
-        return res;
-
     }
 
     on200(response) {
 
-        const nextCursor = 
-            this.cursorValidate(
-                this.cursorExtract(response.headers)
-            )
+        try {
 
-        if (nextCursor) {
-            this.relayUpdateCursor(nextCursor);
+            this.updateCursor(response.headers);
+
             this.relaySuccess();
 
             return {
+                type: "envelope",
                 envelope: response.body,
-            }
+            };
 
-        } 
-        
-        this.relayFailure();   
-        
+        } catch (error) {
+
+            this.relayFailure();
+
+            this.logger?.warn?.(
+                `Invalid cursor received: ${error.message}`
+            );
+
+            return {
+                type: "protocol-error",
+            };
+        }
     }
 
-    on204(response) {
+    on204() {
+
         this.relaySuccess();
+
+        return {
+            type: "exhausted",
+        };
     }
 
     on401(response) {
 
-        const authExpired = 
-            response.headers.get(SMERP_HEADERS.unauthorized)?.toLowerCase() === "expired";
+        const expired =
+            response.headers
+                .get(SMERP_HEADERS.unauthorized)
+                ?.toLowerCase() === "expired";
 
-        if (authExpired) {
+        if (!expired) {
 
-            this.relaySuccess();
+            this.relayFailure();
 
-            this.authHandler.clearSession();
-            
             return {
-                reauth : true
-            }
-
+                type: "protocol-error",
+            };
         }
 
-        this.relayFailure(); // Server is not implementing protocol correctly.       
+        this.relaySuccess();
+
+        this.authHandler.clearSession();
+
+        return {
+            type: "reauth",
+        };
     }
 
-    onUnsupported(){
+    onUnsupported(response) {
+
         this.relayFailure();
+
+        this.logger?.warn?.(
+            `Unsupported response status: ${response.status}`
+        );
+
+        return {
+            type: "unsupported",
+            status: response.status,
+        };
     }
 
-    cursorExtract(headers){
-        
-        const headerCursor = headers.get(
-            SMERP_HEADERS.cursor
-        )
+    // ------------------------------------------------------------------
+    // Cursor
+    // ------------------------------------------------------------------
 
-        return headerCursor ? Number(headerCursor) : -1;
+    updateCursor(headers) {
 
-    }
+        const value =
+            headers.get(SMERP_HEADERS.cursor);
 
-    cursorValidate(cursor) {
-        
-        if (cursor <= this.relay.cursor) {
-            return null;
-        } 
-        else {
-            return cursor;
+        const nextCursor = Number(value);
+
+        if (!Number.isSafeInteger(nextCursor)) {
+            throw new Error("invalid cursor");
         }
 
-    }
-
-    relayUpdateCursor(newCursor) {
-
-        if (newCursor <= this.relay.cursor) {
+        if (nextCursor <= this.relay.cursor) {
             throw new Error("cursor regression");
         }
 
-        this.relay.cursor = newCursor;
+        this.relay.cursor = nextCursor;
     }
+
+    // ------------------------------------------------------------------
+    // Relay health
+    // ------------------------------------------------------------------
 
     relaySuccess() {
 
@@ -213,6 +227,4 @@ export class EnvelopeStream {
         this.relay.disabled =
             this.relay.failureCount > 2;
     }
-
 }
-

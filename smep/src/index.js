@@ -15,6 +15,8 @@ export {
   insist,
   encrypt,
   decrypt,
+  authSessionKey,
+  authSign,
   PrivateIdentity,
   PublicIdentity
 };

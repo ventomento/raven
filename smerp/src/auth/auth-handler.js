@@ -1,5 +1,4 @@
-import { TransportDefault } from "../transport/transport-default";
-import { RequestBuilder } from "../request/request-builder";
+import { RequestBuilder } from "../request/request-builder.js";
 
 import { authSessionKey, authSign } from "../../../smep/src/index.js";
 
@@ -8,7 +7,7 @@ export class AuthHandler {
     constructor({
         identity,
         relay,
-        transporter = new TransportDefault()
+        transporter 
     }) {
 
         this.identity = identity;
