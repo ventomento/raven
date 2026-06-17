@@ -171,40 +171,6 @@ export async function decryptEnvelope({
 // HIGH-LEVEL API
 // ============================================================
 
-export async function authSign(
-  symKey
-){
-  insist(symKey, Uint8Array);
-
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const timestampEncoded = encodeUtf8(timestamp);
-
-  const signature = await hmacSha256(symKey, timestampEncoded);
-
-  return {
-    signature,
-    timestamp
-  }
-}
-
-export async function authSessionKey({
-  identity,
-  ephemeralPublicKeyHex,
-}) {
-
-  insist(identity, PrivateIdentity);
-  insist(ephemeralPublicKeyHex, "string");
-
-  const ephemeralPublicKey = await importPublicKey(ephemeralPublicKeyHex);
-
-  const sharedSecret = await deriveSharedSecret(
-    identity.privateKey,
-    ephemeralPublicKey
-  );
-
-  return await sha256(sharedSecret);
-}
-
 export async function encrypt({
   sender,
   recipient,

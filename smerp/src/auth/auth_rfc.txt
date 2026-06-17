@@ -1,139 +1,219 @@
-# SMERP Authentication Protocol (SAP) v1
+SMERP Authentication Protocol v1
 
-## 1. Overview
+1. Overview
+===========
 
-SAP provides proof-of-possession authentication for clients identified by X25519 keypairs.
+SMERP Authentication Protocol v1 provides proof-of-possession of a client's
+X25519 private key.
 
-Authentication establishes a short-lived session key derived from an X25519 Diffie-Hellman exchange. Subsequent requests are authenticated using HMAC-SHA256.
+The client and relay each possess a long-term X25519 keypair.
+Authentication is performed by deriving a shared secret using X25519 and
+producing an HMAC over a timestamp.
 
-HTTPS/TLS is REQUIRED.
+The protocol requires a single request and no server-side session state.
 
-## 2. Session Establishment
 
-Client:
+2. Terminology
+==============
 
-```http
-POST /intents
-```
+Client
+    Entity performing authentication.
 
-Body:
+Relay
+    Server verifying authentication.
 
-```json
-{
-  "pkh": "<client-public-key-hex>"
-}
-```
+PKH
+    Hex-encoded X25519 public key.
 
-Server:
+Timestamp
+    Unix timestamp in seconds.
 
-1. Generates an ephemeral X25519 keypair.
+Shared Secret
+    X25519 Diffie-Hellman output.
 
-2. Computes:
+Proof Key
+    SHA-512 hash of the shared secret.
 
-   ```text
-   shared_secret =
-       X25519(server_ephemeral_private,
-              client_public)
-   ```
+Signature
+    HMAC-SHA-512 authentication tag.
 
-3. Derives:
 
-   ```text
-   session_key = SHA256(shared_secret)
-   ```
+3. Cryptographic Primitives
+===========================
 
-4. Stores:
+Shared Secret Derivation
 
-   ```text
-   pkh
-   created_at
-   expires_at
-   session_key
-   ```
+    shared_secret =
+        X25519(
+            private_key,
+            public_key
+        )
 
-5. Destroys the ephemeral private key.
+Proof Key Derivation
 
-Response:
+    proof_key =
+        SHA512(shared_secret)
 
-```json
-{
-  "ephemeral_pkh": "<server-ephemeral-public-key-hex>"
-}
-```
+Signature Generation
 
-Client:
+    signature =
+        HMAC_SHA512(
+            proof_key,
+            message
+        )
 
-```text
-shared_secret =
-    X25519(client_private,
-           server_ephemeral_public)
 
-session_key = SHA256(shared_secret)
-```
+4. Timestamp Encoding
+=====================
 
-The client retains only `session_key`.
+The timestamp MUST be a Unix timestamp in seconds.
 
-## 3. Authenticated Requests
+The timestamp MUST be represented as a base-10 decimal string encoded as
+UTF-8.
 
-Client sends:
+Example:
 
-```http
-X-Smerp-Auth-Timestamp: <unix_timestamp>
-X-Smerp-Auth-Signature: <signature>
-```
+    1750201234
+
+No leading zeros are permitted.
+
+
+5. Client Procedure
+===================
+
+5.1 Shared Secret
+
+The client computes:
+
+    shared_secret =
+        X25519(
+            client_private_key,
+            relay_public_key
+        )
+
+5.2 Proof Key
+
+The client computes:
+
+    proof_key =
+        SHA512(shared_secret)
+
+5.3 Signature
+
+The client computes:
+
+    message =
+        UTF8(timestamp)
+
+    signature =
+        HMAC_SHA512(
+            proof_key,
+            message
+        )
+
+5.4 Request Headers
+
+The client MUST include the following HTTP headers:
+
+    x-smerp-pkh: <client_pkh>
+    x-smerp-timestamp: <timestamp>
+    x-smerp-signature: <signature_hex>
 
 Where:
 
-```text
-signature =
-    HMAC-SHA256(
-        session_key,
-        timestamp
-    )
-```
+    client_pkh
+        Hex-encoded X25519 public key.
 
-Note: timestamp must be uft-8 encoded when used in hmac calculation. !!!!! 
+    timestamp
+        Unix timestamp in seconds.
 
-## 4. Verification
+    signature_hex
+        Lowercase hexadecimal encoding of the HMAC output.
 
-Server:
 
-1. Determines the client identity associated with the request.
+6. Relay Verification
+=====================
 
-2. Loads the corresponding session.
+6.1 Extract Inputs
 
-3. Verifies:
+The relay extracts:
 
-   ```text
-   current_server_time < expires_at
-   ```
+    client_pkh
+    timestamp
+    signature
 
-4. Verifies:
+from the request headers.
 
-   ```text
-   HMAC-SHA256(
-       session_key,
-       timestamp
-   )
-   ```
+6.2 Timestamp Validation
 
-If both checks succeed, the request is authenticated.
+The relay MUST verify that the timestamp falls within its accepted
+clock-skew window.
 
-## 5. Expiration
+Requests outside the accepted window MUST be rejected.
 
-When no valid session exists, the server responds:
+The size of the acceptance window is implementation-defined.
 
-```http
-401 Unauthorized
-X-Smerp-Auth-Unauthorized: expired
-```
+6.3 Shared Secret
 
-The client SHALL perform a new `/intents` exchange and retry the request.
+The relay computes:
 
-## 6. Security Considerations
+    shared_secret =
+        X25519(
+            relay_private_key,
+            client_pkh
+        )
 
-* Authentication proves possession of the X25519 private key corresponding to `pkh`.
-* The server stores only the derived `session_key`.
-* Ephemeral private keys SHALL NOT be retained.
-* Replay protection is not provided by SAP.
-* Session validity is determined solely by server-maintained expiration state.
+6.4 Proof Key
+
+The relay computes:
+
+    proof_key =
+        SHA512(shared_secret)
+
+6.5 Expected Signature
+
+The relay computes:
+
+    message =
+        UTF8(timestamp)
+
+    expected_signature =
+        HMAC_SHA512(
+            proof_key,
+            message
+        )
+
+6.6 Verification
+
+The relay MUST compare:
+
+    expected_signature
+
+and
+
+    received_signature
+
+using a constant-time comparison function.
+
+If the signatures match, authentication succeeds.
+
+Otherwise, authentication fails.
+
+
+7. Security Properties
+======================
+
+This protocol provides:
+
+    - Proof-of-possession of the client's X25519 private key.
+    - Stateless relay verification.
+    - Single-request authentication.
+    - Replay resistance bounded by the relay's timestamp acceptance window.
+
+This protocol does not provide:
+
+    - Single-use authentication proofs.
+    - Forward secrecy for authentication proofs.
+    - Protection against replay within the accepted timestamp window.
+
+Deployments SHOULD use TLS for transport security.

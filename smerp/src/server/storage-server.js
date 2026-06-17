@@ -13,6 +13,11 @@ export class StorageServer {
     // uuid uniqueness index
     this.uuidIndex = Object.create(null);
 
+    // ============================================================
+    // INTENTS
+    // ============================================================
+    this.intents = Object.create(null);
+
     Object.seal(this);
   }
 
