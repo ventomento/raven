@@ -1,7 +1,7 @@
 import { insist, PrivateIdentity } from "../../../smep/src/index.js";
 import { TransportDefault } from "../transport/transport-default.js";
 import { RequestBuilder } from "../request/request-builder.js";
-import { AuthHandler } from "../auth/auth-handler.js";
+import { Authenticator} from "../auth/authenticator.js";
 
 const SMERP_HEADERS = Object.freeze({
     cursor: "x-smerp-cursor",
@@ -38,10 +38,9 @@ export class EnvelopeStream {
         this.logger = logger;
         this.clock = clock;
 
-        this.authHandler = new AuthHandler({
+        this.authenticator = new Authenticator({
             identity,
             relay,
-            transporter,
         });
     }
 
@@ -51,16 +50,9 @@ export class EnvelopeStream {
 
     async next() {
 
-        let result = await this.processResponse(
+        let result = this.processResponse(
             await this.envelopesGet()
         );
-
-        if (result?.type === "reauth") {
-
-            result = await this.processResponse(
-                await this.envelopesGet()
-            );
-        }
 
         return result?.type === "envelope"
             ? result.envelope
@@ -79,7 +71,7 @@ export class EnvelopeStream {
                 this.identity.publicKeyHex
             ),
             options: {
-                headers: await this.authHandler.getHeaders(),
+                headers: await this.authenticator.headers(),
             },
             logger: this.logger,
         });
@@ -145,26 +137,18 @@ export class EnvelopeStream {
 
     on401(response) {
 
-        const expired =
-            response.headers
-                .get(SMERP_HEADERS.unauthorized)
-                ?.toLowerCase() === "expired";
+        const smerpUnauthorized = response.headers.has(SMERP_HEADERS.unauthorized);
+        
+        if (smerpUnauthorized) {
+            
+            this.logger.warn("smerp protocol unauthorized");
 
-        if (!expired) {
-
-            this.relayFailure();
-
-            return {
-                type: "protocol-error",
-            };
         }
 
-        this.relaySuccess();
-
-        this.authHandler.clearSession();
-
+        this.relayFailure();
+        
         return {
-            type: "reauth",
+            type: "unauthorized",
         };
     }
 
@@ -189,7 +173,7 @@ export class EnvelopeStream {
     updateCursor(headers) {
 
         const value =
-            headers.get(SMERP_HEADERS.cursor);
+            headers[SMERP_HEADERS.cursor];
 
         const nextCursor = Number(value);
 

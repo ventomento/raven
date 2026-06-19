@@ -39,13 +39,14 @@
 
     <script type="module">
         import { 
+            insist,
             PrivateIdentity,
             SmerpClient,
             WebBootloader,    
-        } from "../index.js";
+        } from "./index.js";
 
         const identity = await PrivateIdentity.generate();
-
+        insist(identity, PrivateIdentity);
 
         const appEl = document.getElementById("app");
         appEl.klass = new WebBootloader({

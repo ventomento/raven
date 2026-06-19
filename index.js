@@ -1,4 +1,5 @@
-import { 
+import {
+    insist, 
     encrypt,
     decrypt,
     PrivateIdentity,
@@ -14,6 +15,7 @@ import {
 } from "./smerp/src/client/web-bootloader.js";
 
 export {
+    insist,
     encrypt,
     decrypt,
     PrivateIdentity,

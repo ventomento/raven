@@ -2,7 +2,6 @@ import { importPublicKey, deriveSharedSecret } from "../../../smep/src/crypto/x2
 import { deriveHmacKey } from "../../../smep/src/crypto/kdf.js";
 import { hmacSha256 } from "../../../smep/src/crypto/hmac.js";
 import { encodeUtf8 } from "../../../smep/src/encoding/utf8.js";
-import { type } from "node:os";
 
 // Authentication Claim: I own the private key at timestamp.
 
@@ -15,6 +14,7 @@ export class Authenticator {
         this.identity = identity;
         this.relay = relay;
         this._symKey = null;
+
     }
 
     async symKey() {
@@ -50,6 +50,12 @@ export class Authenticator {
 
     async headers() {
 
+        if (!this.relay.relayPkh) {
+
+            return this._makeHeaders("not configured", "not configured");
+
+        }
+
         const {timestamp, timestampEncoded} = this.timestamp();
 
         const hmacKey = await this.symKey();
@@ -59,11 +65,17 @@ export class Authenticator {
             timestampEncoded
         );
 
+        return this._makeHeaders(timestamp, signature);
+
+    }
+
+    _makeHeaders(timestamp, signature) {
+        
         return {
             "x-smerp-timestamp": timestamp,
             "x-smerp-signature": signature
         };
 
     }
-
+    
 }

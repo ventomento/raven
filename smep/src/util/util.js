@@ -6,7 +6,7 @@
 export function insist(arg, type = null) {
 
   if (arg === undefined || arg === null) {
-    console.log("require debug: args=", arg, type);
+    console.log("Insist type error: args=", arg, type);
     throw new Error(
       `Required value is missing (was ${
         arg === undefined

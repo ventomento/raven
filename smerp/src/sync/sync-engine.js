@@ -1,9 +1,6 @@
 import { PrivateIdentity } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
-import { AuthHandler } from "../auth/auth-handler.js";
-import { RequestBuilder } from "../request/request-builder.js";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
-import { ResponseHandler } from "./response-handler.js";
 import { EnvelopeStream } from "./envelope-stream.js";
 
 export class SyncEngine {
@@ -25,7 +22,7 @@ export class SyncEngine {
         insist(logger);
         insist(pkh);
 
-        this.identity;
+        this.identity = identity;
         this.transporter = transporter;
         this.logger = logger;
         this.storage = storage;
@@ -57,7 +54,7 @@ export class SyncEngine {
     async syncRelay(relay) {
 
         const envelopeStream = 
-            new envelopeStream({
+            new EnvelopeStream({
                 identity: this.identity,
                 relay,
                 transporter: this.transporter,
@@ -75,10 +72,26 @@ export class SyncEngine {
                 () => envelopeStream.next()
             );
 
-            await this.storage.relaysPut(relay); 
-            await this.ingestor.ingest(envelopeBytes);
+            this.persist({
+                relay,
+                envelopeBytes
+            })
+
 
         } while ( envelopeBytes && cnt < 50 );
+
+    }
+
+    async persist({
+        relay,
+        envelopeBytes
+    }) {
+
+        await this.storage.relaysPut(relay); 
+
+        if (envelopeBytes) {
+            await this.ingestor.ingest(envelopeBytes);
+        }
 
     }
 }

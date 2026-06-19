@@ -68,14 +68,17 @@ export class SmerpServer {
         "GET, POST, OPTIONS"
       );
 
-      res.setHeader(
-        "Access-Control-Allow-Headers",
-        "*" // wildcard may not work on all servers. sometime everything needs to be exposed explicitly.
-      );
-      res.setHeader(
-        "Access-Control-Expose-Headers",
-        "x-smerp"
-      );
+      res.setHeader("Access-Control-Allow-Headers", [
+        "*",
+        "content-type",
+        "x-smerp-timestamp",
+        "x-smerp-signature",
+      ]);
+
+      res.setHeader("Access-Control-Expose-Headers", [
+        "x-smerp-cursor",
+        "x-smerp-unauthorized",
+      ]);
 
       const url =
         new URL(req.url, "http://localhost");
@@ -311,10 +314,7 @@ export class SmerpServer {
     );
 
     res.setHeader(
-      "x-smerp",
-      JSON.stringify({
-        cursor: record.id,
-      })
+      "x-smerp-cursor", record.id
     );
 
     res.end(

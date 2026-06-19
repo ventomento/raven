@@ -106,6 +106,7 @@ export class SmerpClient {
 
       this.syncEngine =
         new SyncEngine({
+          identity: this.identity,
           transporter: this.transporter,
           storage: this.storage,
           ingestor: this.ingestor,
