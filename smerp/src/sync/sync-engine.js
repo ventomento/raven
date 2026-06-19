@@ -72,7 +72,7 @@ export class SyncEngine {
                 () => envelopeStream.next()
             );
 
-            this.persist({
+            await this.persist({
                 relay,
                 envelopeBytes
             })

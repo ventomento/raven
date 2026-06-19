@@ -1,11 +1,6 @@
 // src/protocol/protocol.js
 
 import {
-  generateKeyPair,
-  importPrivateKey,
-  exportPrivateKey,
-  importPublicKey,
-  exportPublicKey,
   exportPublicKeyBytes,
   deriveSharedSecret,
 } from "../crypto/x25519.js";
@@ -26,8 +21,6 @@ import { bytesToHex } from "../encoding/hex.js";
 import { Serializer } from "../envelope/serializer.js";
 import { ContentTypes } from "../envelope/content-types.js";
 import { insist } from "../util/util.js";
-import { sha256 } from "../crypto/hash.js";
-import { hmacSha256 } from "../crypto/hmac.js";
 
 // ============================================================
 // INTERNAL CRYPTO

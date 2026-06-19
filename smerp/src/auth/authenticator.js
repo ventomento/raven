@@ -2,6 +2,8 @@ import { importPublicKey, deriveSharedSecret } from "../../../smep/src/crypto/x2
 import { deriveHmacKey } from "../../../smep/src/crypto/kdf.js";
 import { hmacSha256 } from "../../../smep/src/crypto/hmac.js";
 import { encodeUtf8 } from "../../../smep/src/encoding/utf8.js";
+import { PrivateIdentity, PublicIdentity } from "../../../smep/src/index.js";
+import { symHmacKey, makeHeaders, signedHeaders } from "./protocol.js";
 
 // Authentication Claim: I own the private key at timestamp.
 
@@ -23,59 +25,30 @@ export class Authenticator {
             return this._symKey;
         }
         
-        const relayPublicKey = await importPublicKey(this.relay.relayPkh);
-        
-        const sharedSecret = await deriveSharedSecret(
-            this.identity.privateKey,
-            relayPublicKey
-        );
+        const publicIdentity = PublicIdentity.fromPublicHex(this.relay.relayPkh);
 
-        this._symKey = await deriveHmacKey(
-            sharedSecret
-        );
+        this._symKey = await symHmacKey({
+            PrivateIdentity : this.identity, 
+            PublicIdentity : publicIdentity
+        })
 
         return this._symKey;
 
     }
 
-    timestamp() {
-        const timestamp = Math.floor(Date.now() / 1000).toString();
-
-        const timestampEncoded = encodeUtf8(timestamp);
-
-        return {timestamp, timestampEncoded};
-    }
-
-    // Public api.
-
     async headers() {
 
         if (!this.relay.relayPkh) {
-
-            return this._makeHeaders("not configured", "not configured");
-
+            return makeHeaders("not configured", "not configured");
         }
-
-        const {timestamp, timestampEncoded} = this.timestamp();
 
         const hmacKey = await this.symKey();
 
-        const signature = await hmacSha256(
-            hmacKey,
-            timestampEncoded
-        );
-
-        return this._makeHeaders(timestamp, signature);
+        return await signedHeaders(
+            hmacKey
+        )
 
     }
 
-    _makeHeaders(timestamp, signature) {
-        
-        return {
-            "x-smerp-timestamp": timestamp,
-            "x-smerp-signature": signature
-        };
-
-    }
     
 }
