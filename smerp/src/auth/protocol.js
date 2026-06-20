@@ -1,11 +1,14 @@
 import { PrivateIdentity,  PublicIdentity, insist } from "../../../smep/src/index.js";
-import { deriveSharedSecret } from "../../../smep/src/crypto/x25519";
-import { deriveHmacKey } from "../../../smep/src/crypto/kdf";
+import { deriveSharedSecret } from "../../../smep/src/crypto/x25519.js";
+import { deriveHmacKey } from "../../../smep/src/crypto/kdf.js";
+import { hmacSha256, verifyHmacSha256 } from "../../../smep/src/crypto/hmac.js";
+import { bytesToHex, hexToBytes } from "../../../smep/src/encoding/hex.js";
+import { encodeUtf8 } from "../../../smep/src/encoding/utf8.js";
 
-export async function symHmacKey(
+export async function symHmacKey({
     privateIdentity, 
     publicIdentity
-) {
+}) {
 
     insist(privateIdentity, PrivateIdentity);
     insist(publicIdentity, PublicIdentity);
@@ -38,11 +41,11 @@ export async function signedHeaders(hmacKey){
         timestampEncoded
     );
         
-    return makeHeaders(timestamp, signature);
+    return makeHeaders(timestamp, bytesToHex(signature));
 
 }
 
-function makeHeaders(timestamp, signature) {
+export function makeHeaders(timestamp, signature) {
     
     return {
         "x-smerp-timestamp": timestamp,
@@ -51,6 +54,24 @@ function makeHeaders(timestamp, signature) {
 
 }
 
-export function verify() {
+export async function verify({
+    privateIdentity,
+    publicIdentity,
+    dataHex,
+    signatureHex    
+}) {
 
+    const symKey = await symHmacKey({
+        privateIdentity,
+        publicIdentity
+    })
+
+    const data = hexToBytes(dataHex);
+    const signature = hexToBytes(signatureHex);
+
+    return await verifyHmacSha256(
+        symKey,
+        data,
+        signature
+    );
 }

@@ -144,10 +144,15 @@ export class SmerpUi {
 
             case StateTypes.RELAYS_POST:
 
-                const {relayUrl, relayType} = options;
+                const {
+                    relayUrl,
+                    relayPkh, 
+                    relayType
+                } = options;
 
                 Promise.resolve(this.smerpClient.relaysPut({
                     relayUrl,
+                    relayPkh,
                     relayType
                 }))
                 .then(() => {

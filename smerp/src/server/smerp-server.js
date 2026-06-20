@@ -8,6 +8,13 @@ import { URL } from "node:url";
 import { StorageServer } from "./storage-server.js";
 import { Serializer } from "../../../smep/src/envelope/serializer.js";
 import { bytesToHex } from "../../../smep/src/encoding/hex.js";
+import { PrivateIdentity, PublicIdentity } from "../../../smep/src/index.js";
+import { verify } from "../auth/protocol.js";
+
+const AUTH_CONFIG = {
+  publicKeyHex: "0xeb03b29ead5416dae89af429e77f649c3e9f8628cb032a12aa17a03e1d6bf249",
+  privateKeyHex: "0xab534a94a7acad200f54653a81fc776980be44c91ea029f5b47eb16289d9da0f"
+}
 
 export class SmerpServer {
 
@@ -16,6 +23,11 @@ export class SmerpServer {
   } = {}) {
 
     this.storage = storage;
+
+    this.identityPromise =
+    PrivateIdentity.fromPrivateKeyHex(
+      AUTH_CONFIG.privateKeyHex
+    );
 
     this.server = http.createServer(
       this.#handleRequest.bind(this)
@@ -49,6 +61,69 @@ export class SmerpServer {
       });
     });
   }
+  
+  async #authenticateGet(
+  req,
+  url
+) {
+
+  const pkh =
+    url.searchParams.get("pkh");
+
+  const timestamp =
+    req.headers["x-smerp-timestamp"];
+
+  const signature =
+    req.headers["x-smerp-signature"];
+
+  if (
+    !pkh ||
+    !timestamp ||
+    !signature
+  ) {
+    return false;
+  }
+
+  const now =
+    Math.floor(Date.now() / 1000);
+
+  const ts =
+    Number(timestamp);
+
+  if (
+    !Number.isInteger(ts) ||
+    Math.abs(now - ts) > 300
+  ) {
+    return false;
+  }
+
+  const relayIdentity =
+    await this.identityPromise;
+
+  const clientIdentity =
+    await PublicIdentity.fromPublicHex(
+      pkh
+    );
+
+  const data =
+    new TextEncoder().encode(
+      timestamp
+    );
+
+  return verify({
+    privateIdentity:
+      relayIdentity,
+
+    publicIdentity:
+      clientIdentity,
+
+    dataHex:
+      bytesToHex(data),
+
+    signatureHex:
+      signature
+  });
+}
 
   // ============================================================
   // REQUEST ROUTER
@@ -268,6 +343,25 @@ export class SmerpServer {
 
     const pkh =
       url.searchParams.get("pkh");
+
+    if (
+      !(await this.#authenticateGet(
+        req,
+        url
+      ))
+    ) {
+
+      res.statusCode = 401;
+
+      res.setHeader(
+        "x-smerp-unauthorized",
+        "invalid signature"
+      );
+
+      res.end();
+
+      return;
+    }
 
     const idRaw =
       url.searchParams.get("cursor");

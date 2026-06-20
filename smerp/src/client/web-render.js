@@ -236,14 +236,17 @@ class BtnRelaysPost {
     }
 
     onClick() {
+
         const parent = this.el.parentElement;
-        const relayUrl = parent.querySelector("input[type='text']").value;
+        const relayUrl = parent.querySelector("input[name='relayurl']").value;
+        const relayPkh = parent.querySelector("input[name='relaypkh']").value;
         const relayType = parent.querySelector("select").value;
 
         this.smerpUi.stateSet(
             StateTypes.RELAYS_POST,
             {
                 relayUrl,
+                relayPkh,
                 relayType
             }
         )

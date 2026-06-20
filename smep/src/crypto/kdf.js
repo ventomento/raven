@@ -37,7 +37,7 @@ export async function deriveHmacKey(sharedSecret) {
       hash: "SHA-256",
     },
     false,
-    ["sign"]
+    ["sign", "verify"]
   );
 
   return cryptoKey;

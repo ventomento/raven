@@ -120,11 +120,17 @@ DomForge.select = function(options = [], className = null) {
   return applyClass(el, className);
 };
 
-DomForge.input = function(type = "text", value = "", className = null) {
+DomForge.input = function(
+  type = "text", 
+  value = "", 
+  className = null, 
+  name = null
+) {
   const el = document.createElement("input");
 
   el.type = type;
   el.value = value;
+  el.name = name;
 
   return applyClass(el, className);
 };
@@ -211,7 +217,9 @@ DomForge.relayForm = function(className = null) {
   const div = DomForge.div(null, className);
   
   div.appendChild(DomForge.label("Relay Url"));
-  div.appendChild(DomForge.input("text"));
+  div.appendChild(DomForge.input("text", "", null, "relayurl"));
+  div.appendChild(DomForge.label("Relay Pkh"));
+  div.appendChild(DomForge.input("text", "", null, "relaypkh"));
   div.appendChild(DomForge.label("Relay Type"));
   div.appendChild(
     DomForge.select([
@@ -275,6 +283,7 @@ DomForge.relay = function(relayObj, className = null) {
 
   const fields = [
     ["Relay URL", relayObj.relayUrl],
+    ["Relay Pkh", relayObj.relayPkh],
     ["Relay Type", relayObj.relayType],
     ["Disabled", relayObj.disabled],
     ["Cursor", relayObj.cursor],

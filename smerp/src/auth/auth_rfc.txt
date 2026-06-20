@@ -12,6 +12,9 @@ producing an HMAC over a timestamp.
 
 The protocol requires a single request and no server-side session state.
 
+This auth protocol should only be used for 
+    endpoint: /envelopes
+    method: "GET"
 
 2. Terminology
 ==============
@@ -115,7 +118,6 @@ The client computes:
 
 The client MUST include the following HTTP headers:
 
-    x-smerp-pkh: <client_pkh>
     x-smerp-timestamp: <timestamp>
     x-smerp-signature: <signature_hex>
 
