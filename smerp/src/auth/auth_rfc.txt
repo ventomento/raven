@@ -3,48 +3,41 @@ SMERP Authentication Protocol v1
 1. Overview
 ===========
 
-SMERP Authentication Protocol v1 provides proof-of-possession of a client's
+SMERP Authentication provides proof-of-possession of a client's long-term
 X25519 private key.
 
-The client and relay each possess a long-term X25519 keypair.
-Authentication is performed by deriving a shared secret using X25519 and
-producing an HMAC over a timestamp.
+The client and relay each hold an X25519 keypair. Authentication is performed
+by deriving a shared secret and creating an HMAC signature over a timestamp.
 
-The protocol requires a single request and no server-side session state.
+The protocol is stateless and consists of a single HTTP request.
 
-This auth protocol should only be used for 
-    endpoint: /envelopes
-    method: "GET"
+Usage:
+
+    GET /envelopes
 
 2. Terminology
 ==============
 
 Client
-    Entity performing authentication.
+    Entity requesting authentication.
 
 Relay
-    Server verifying authentication.
+    Entity verifying authentication.
 
 PKH
     Hex-encoded X25519 public key.
 
 Timestamp
-    Unix timestamp in seconds.
-
-Shared Secret
-    X25519 Diffie-Hellman output.
-
-Proof Key
-    SHA-512 hash of the shared secret.
+    Unix timestamp in seconds encoded as a decimal UTF-8 string.
 
 Signature
-    HMAC-SHA-512 authentication tag.
+    Hex-encoded HMAC-SHA256 output.
 
 
 3. Cryptographic Primitives
 ===========================
 
-Shared Secret Derivation
+Shared secret:
 
     shared_secret =
         X25519(
@@ -52,39 +45,45 @@ Shared Secret Derivation
             public_key
         )
 
-Proof Key Derivation
+Proof key:
 
     proof_key =
-        SHA512(shared_secret)
+        SHA256(shared_secret)
 
-Signature Generation
+Signature:
 
     signature =
-        HMAC_SHA512(
+        HMAC-SHA256(
             proof_key,
-            message
+            UTF8(timestamp)
         )
 
+All cryptographic operations use raw bytes.
+Hex encoding is only used for transport.
 
-4. Timestamp Encoding
-=====================
 
-The timestamp MUST be a Unix timestamp in seconds.
+4. Timestamp Rules
+==================
 
-The timestamp MUST be represented as a base-10 decimal string encoded as
-UTF-8.
+The timestamp MUST:
+
+- be a Unix timestamp in seconds
+- be represented as a base-10 decimal string
+- contain no leading zeros
+- be encoded as UTF-8 before signing
+
 
 Example:
 
     1750201234
 
-No leading zeros are permitted.
+
+The relay defines the accepted clock-skew window.
+Requests outside this window MUST be rejected.
 
 
-5. Client Procedure
-===================
-
-5.1 Shared Secret
+5. Client Authentication
+========================
 
 The client computes:
 
@@ -94,70 +93,58 @@ The client computes:
             relay_public_key
         )
 
-5.2 Proof Key
-
-The client computes:
 
     proof_key =
-        SHA512(shared_secret)
+        SHA256(shared_secret)
 
-5.3 Signature
-
-The client computes:
-
-    message =
-        UTF8(timestamp)
 
     signature =
-        HMAC_SHA512(
+        HMAC-SHA256(
             proof_key,
-            message
+            UTF8(timestamp)
         )
 
-5.4 Request Headers
 
-The client MUST include the following HTTP headers:
+The client sends:
+
+    GET /envelopes
+
+
+Headers:
 
     x-smerp-timestamp: <timestamp>
     x-smerp-signature: <signature_hex>
 
-Where:
 
-    client_pkh
-        Hex-encoded X25519 public key.
+Requirements:
 
-    timestamp
-        Unix timestamp in seconds.
+    x-smerp-timestamp
+        MUST contain the signed timestamp.
 
-    signature_hex
-        Lowercase hexadecimal encoding of the HMAC output.
+    x-smerp-signature
+        MUST contain lowercase hexadecimal encoding of
+        the HMAC-SHA256 output.
 
 
 6. Relay Verification
 =====================
 
-6.1 Extract Inputs
-
 The relay extracts:
 
-    client_pkh
+    pkh (client public key hex)
     timestamp
     signature
 
-from the request headers.
 
-6.2 Timestamp Validation
+The relay MUST:
 
-The relay MUST verify that the timestamp falls within its accepted
-clock-skew window.
 
-Requests outside the accepted window MUST be rejected.
+1. Validate the timestamp.
 
-The size of the acceptance window is implementation-defined.
+   Requests outside the accepted clock-skew window MUST be rejected.
 
-6.3 Shared Secret
 
-The relay computes:
+2. Compute:
 
     shared_secret =
         X25519(
@@ -165,57 +152,49 @@ The relay computes:
             client_pkh
         )
 
-6.4 Proof Key
-
-The relay computes:
 
     proof_key =
-        SHA512(shared_secret)
+        SHA256(shared_secret)
 
-6.5 Expected Signature
-
-The relay computes:
-
-    message =
-        UTF8(timestamp)
 
     expected_signature =
-        HMAC_SHA512(
+        HMAC-SHA256(
             proof_key,
-            message
+            UTF8(timestamp)
         )
 
-6.6 Verification
 
-The relay MUST compare:
+3. Compare:
 
     expected_signature
 
-and
+against:
 
     received_signature
 
-using a constant-time comparison function.
+
+The comparison MUST use a constant-time comparison function.
+
 
 If the signatures match, authentication succeeds.
-
-Otherwise, authentication fails.
+Otherwise authentication fails.
 
 
 7. Security Properties
 ======================
 
-This protocol provides:
+Provides:
 
-    - Proof-of-possession of the client's X25519 private key.
-    - Stateless relay verification.
-    - Single-request authentication.
-    - Replay resistance bounded by the relay's timestamp acceptance window.
+- Proof-of-possession of the client's X25519 private key.
+- Stateless relay verification.
+- Replay resistance bounded by the timestamp acceptance window.
 
-This protocol does not provide:
 
-    - Single-use authentication proofs.
-    - Forward secrecy for authentication proofs.
-    - Protection against replay within the accepted timestamp window.
+Does not provide:
 
-Deployments SHOULD use TLS for transport security.
+- Single-use authentication proofs.
+- Protection against replay within the accepted timestamp window.
+- Forward secrecy for authentication requests.
+
+
+TLS SHOULD be used for transport protection.
