@@ -11,6 +11,10 @@ import {
 } from "./smerp/src/client/smerp-client.js";
 
 import {
+    SmerpUi, 
+} from "./smerp/src/client/smerp-ui.js"
+
+import {
     WebBootloader
 } from "./smerp/src/client/web-bootloader.js";
 
@@ -21,5 +25,6 @@ export {
     PrivateIdentity,
     PublicIdentity,
     SmerpClient,
+    SmerpUi,
     WebBootloader
 }

@@ -4,8 +4,6 @@
 // Event Types
 // ======================================================
 //
-// Best practice:
-// - use SCREAMING_SNAKE_CASE constants
 // - event names describe facts that happened
 // - event payloads carry the data
 //
@@ -34,8 +32,6 @@ export function isValidEventType(eventType) {
 // - receive published events
 // - notify matching subscribers
 // - allow subscribe/unsubscribe
-//
-// "EventBus" is the most common and appropriate naming.
 //
 
 export class EventBus {
