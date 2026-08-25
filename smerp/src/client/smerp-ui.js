@@ -1,11 +1,25 @@
-import { SmerpClient } from "./smerp-client.js";
+import { 
+    SmerpClient 
+} from "./smerp-client.js";
+
 import {
     PrivateIdentity,
     insist,
 } from "../../../smep/src/index.js";
-import { StateTypes } from "./states.js";
 
-// Essentially a presentation state machine over smerpClient.
+import { 
+    StateTypes 
+} from "./states.js";
+
+/**
+ * A state machine for the Smerp client.
+ *
+ * - Exposes renderable UI states and overridable event hooks.
+ *
+ * Optional integrations:
+ * - `webrender` for HTML rendering.
+ * - `indexeddb-storage` for web storage.
+ */
 
 export class SmerpUi {
 
@@ -17,6 +31,8 @@ export class SmerpUi {
         debug = false,
     }) {
 
+        // args: Note render should be a class and not an instance. 
+
         insist(identity, PrivateIdentity);
 
         this.el = el;
@@ -27,7 +43,7 @@ export class SmerpUi {
             this.debug ? 
             (state) => {console.log(state)} : 
             (state) => (new render(this.el, this)).render(state) 
-        // renderClass need to know container and statemachin (this) to set next state.
+        // renderClass need to know container and statemachine (this) to set next state.
 
         this.smerpClient = new SmerpClient({
             identity,
