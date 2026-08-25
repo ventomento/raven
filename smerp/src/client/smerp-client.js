@@ -85,7 +85,7 @@ export class SmerpClient {
       // -------------------------------------------------
       if (this.debug) {
         await this.relaysPut({
-          relayUrl: "http://localhost:8080",
+          relayUrl: "http://localhost:8000",
           relayType: "archive",
           relayPkh: "0xeb03b29ead5416dae89af429e77f649c3e9f8628cb032a12aa17a03e1d6bf249"
         });

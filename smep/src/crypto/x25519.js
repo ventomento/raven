@@ -139,6 +139,7 @@ export async function importPrivateKey(scalarHex) {
     privateJWKFull = await crypto.subtle.exportKey("jwk", privateKey);
   } catch (err) {
     throw new Error("Crypto: Outdated browser - export private jwk not supported on browser. Upgrade to latest browser version"); 
+    alert("Crypto: Outdated browser - export private jwk not supported on browser. Upgrade to latest browser version"); 
   }
   
   const publicJWK = { ...privateJWKFull };

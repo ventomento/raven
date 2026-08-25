@@ -4,7 +4,7 @@ import { SmerpServer } from "./smerp-server.js";
 
 const server = new SmerpServer();
 
-const PORT = 8080;
+const PORT = 8000;
 
 await server.listen(PORT);
 

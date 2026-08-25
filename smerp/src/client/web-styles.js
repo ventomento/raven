@@ -35,7 +35,7 @@ p, h4 {
 }
 
 .smerpui{
-
+    min-height:400px;
 }
 
 .smerpui__header{
