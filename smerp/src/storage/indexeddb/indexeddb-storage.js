@@ -1,9 +1,11 @@
 import {
   StorageInterface,
+  newestFirst,
 } from "../storage-interface.js";
 
 import {
   STORES,
+  INDEXES,
 } from "./constants.js";
 
 import {
@@ -62,9 +64,12 @@ export class IndexedDbStorage
       );
     }
 
-    return this.#getAll(
+    // getAll returns primary key (uuid) order; the contract is newest first.
+    const envelopes = await this.#getAll(
       STORES.ENVELOPES
     );
+
+    return envelopes.sort(newestFirst);
   }
 
   async envelopesPut(record) {
@@ -649,7 +654,8 @@ storeDump.onsuccess =
   async #getEnvelopesByConversation(
     {
       publicKeyHex,
-      beforeTimestamp,
+      beforeSentAt,
+      beforeReceivedAt,
       limit,
     }
   ) {
@@ -670,14 +676,21 @@ storeDump.onsuccess =
 
         const index =
           store.index(
-            "conversationTimestamp"
+            INDEXES.CONVERSATION_SENT_AT
           );
 
         const results = [];
 
-        const upper =
-          beforeTimestamp ??
-          Number.MAX_SAFE_INTEGER;
+        // Keys are [publicKeyHex, sentAt, receivedAt] and the upper bound
+        // is open. [publicKeyHex, beforeSentAt] sorts below every key with
+        // that sentAt (a shorter array is smaller), so they are excluded;
+        // with beforeReceivedAt only the pair itself and above are.
+        const upperKey =
+          beforeSentAt === undefined
+            ? [publicKeyHex, Number.MAX_SAFE_INTEGER]
+            : beforeReceivedAt === undefined
+              ? [publicKeyHex, beforeSentAt]
+              : [publicKeyHex, beforeSentAt, beforeReceivedAt];
 
         const range =
           IDBKeyRange.bound(
@@ -685,10 +698,7 @@ storeDump.onsuccess =
               publicKeyHex,
               -Infinity,
             ],
-            [
-              publicKeyHex,
-              upper,
-            ],
+            upperKey,
             false,
             true
           );

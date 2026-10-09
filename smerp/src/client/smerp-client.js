@@ -16,6 +16,7 @@ import { TransportDefault } from "../transport/transport-default.js";
 import { SyncEngine } from "../sync/sync-engine.js";
 import { LightLog } from "../log/light-log.js";
 import { Ingestor } from "../ingest/ingestor.js";
+import { RealClock, RelayRateLimits, retryAfterMs } from "../sync/rate-limiter.js";
 import { EventBus, EventTypes } from "../event/event-bus.js";
 import { NotStartedError, DispatchError } from "./errors.js";
 
@@ -47,6 +48,10 @@ export class SmerpClient {
     storage = new StorageMemory(),
     logger = new LightLog(),
     syncIntervalMs = 60 * 1000,
+    // Per relay, shared by fetches and sends. Protects the relay.
+    relayRateLimit = RelayRateLimits.DEFAULTS,
+    // { now(): ms, sleep(ms): Promise }. All times are milliseconds.
+    clock = RealClock,
   }) {
 
     insist(identity, PrivateIdentity);
@@ -56,6 +61,10 @@ export class SmerpClient {
     this.storage = storage;
     this.logger = logger;
     this.syncIntervalMs = syncIntervalMs;
+    this.clock = clock;
+
+    // Outlives start/stop so a restart cannot reset a relay's budget.
+    this.rateLimits = new RelayRateLimits({ ...relayRateLimit, clock });
 
     this.eventBus = new EventBus();
     this.status = ClientStatus.STOPPED;
@@ -93,6 +102,7 @@ export class SmerpClient {
           identity: this.identity,
           eventBus: this.eventBus,
           logger: this.logger,
+          clock: this.clock,
         });
 
       this.syncEngine =
@@ -104,7 +114,11 @@ export class SmerpClient {
           logger: this.logger,
           eventBus: this.eventBus,
           pkh: this.publicKeyHex,
+          clock: this.clock,
+          rateLimits: this.rateLimits,
         });
+
+      await this.#resetSyncDisabledRelays();
     }
     catch (error) {
       await this.storage.close();
@@ -183,18 +197,15 @@ export class SmerpClient {
   // =====================================================
 
   /**
-   * options: {} | { uuid } | { publicKeyHex, beforeTimestamp?, limit? }
-   * Sorted newest first.
+   * options: {} | { uuid } | { publicKeyHex, beforeSentAt?, beforeReceivedAt?, limit? }
+   * Sorted newest first (sentAt, then receivedAt). To page, pass the
+   * sentAt and receivedAt of the previous page's last envelope.
    */
   async envelopesGet(options = {}) {
 
     this.#assertRunning();
 
-    const envelopes = await this.storage.envelopesGet(options);
-
-    return envelopes.sort(
-      (a, b) => b.timestamp - a.timestamp
-    );
+    return this.storage.envelopesGet(options);
   }
 
   // =====================================================
@@ -440,9 +451,38 @@ export class SmerpClient {
     }
   }
 
-  async #dispatch(envelopeBytes) {
+  /**
+   * Older versions disabled a relay after 3 failures in a row, for
+   * good. Sync now backs off instead and only the user sets disabled.
+   * Re-enable relays that look disabled by sync (disabled with more
+   * than 2 failures) so they get retried.
+   */
+  async #resetSyncDisabledRelays() {
 
     const relays = await this.storage.relaysGet();
+
+    for (const relay of relays) {
+
+      if (!(relay.disabled && relay.failureCount > 2)) {
+        continue;
+      }
+
+      const reset = { ...relay, disabled: false, failureCount: 0 };
+
+      await this.storage.relaysPut(reset);
+
+      this.eventBus.publish({
+        type: EventTypes.RELAY,
+        relay: reset,
+        deleted: false,
+      });
+    }
+  }
+
+  async #dispatch(envelopeBytes) {
+
+    const relays = (await this.storage.relaysGet())
+      .filter(relay => !relay.disabled);
 
     const results = await Promise.allSettled(
       relays.map(
@@ -472,12 +512,27 @@ export class SmerpClient {
 
   async #dispatchToRelay(relay, envelopeBytes) {
 
+    const rateLimiter = this.rateLimits.for(relay.relayUrl);
+
+    // Fail fast rather than hold send() for a relay's Retry-After.
+    if (rateLimiter.isPaused()) {
+      throw new Error(`Relay asked to wait: ${relay.relayUrl}`);
+    }
+
+    await rateLimiter.acquire();
+
     const response =
       await this.transporter.transport({
         url: RequestBuilder.urlEnvelopesPost(relay),
         options: RequestBuilder.optionsEnvelopesPost(envelopeBytes),
         logger: this.logger,
       });
+
+    if (response.status === 429) {
+      rateLimiter.pause(
+        this.clock.now() + retryAfterMs(response.headers, this.clock.now())
+      );
+    }
 
     if (response.status !== 200) {
       throw new Error(`Relay dispatch failed: ${response.status}`);

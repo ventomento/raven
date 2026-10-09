@@ -15,6 +15,7 @@ export const EventTypes = Object.freeze({
     SYNC: "sync",                  // { phase: "start" | "end" }
     STATUS: "status",              // { status }                     client lifecycle changed
     ERROR: "error",                // { error, relayUrl? }           background failure
+    REJECTED: "rejected",          // { relayUrl, cursor, uuid, reason }  envelope skipped: malformed or undecryptable
 })
 
 export function isValidEventType(eventType) {

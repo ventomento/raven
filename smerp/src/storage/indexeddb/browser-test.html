@@ -326,7 +326,9 @@ function deepEqual(
         "text/plain",
       plaintext:
         "msg1",
-      timestamp:
+      sentAt:
+        100,
+      receivedAt:
         100,
     },
     {
@@ -341,7 +343,9 @@ function deepEqual(
         "text/plain",
       plaintext:
         "msg2",
-      timestamp:
+      sentAt:
+        200,
+      receivedAt:
         200,
     },
     {
@@ -356,7 +360,9 @@ function deepEqual(
         "text/plain",
       plaintext:
         "msg3",
-      timestamp:
+      sentAt:
+        300,
+      receivedAt:
         300,
     },
   ];
@@ -420,19 +426,19 @@ function deepEqual(
       );
 
       assert(
-        result[0].timestamp ===
+        result[0].sentAt ===
           300,
         "not newest first"
       );
 
       assert(
-        result[1].timestamp ===
+        result[1].sentAt ===
           200,
         "wrong order"
       );
 
       assert(
-        result[2].timestamp ===
+        result[2].sentAt ===
           100,
         "wrong order"
       );
@@ -440,14 +446,14 @@ function deepEqual(
   );
 
   await test(
-    "beforeTimestamp is exclusive",
+    "beforeSentAt is exclusive",
     async () => {
 
       const result =
         await storage.envelopesGet({
           publicKeyHex:
             "conversationA",
-          beforeTimestamp:
+          beforeSentAt:
             300,
         });
 
@@ -457,13 +463,13 @@ function deepEqual(
       );
 
       assert(
-        result[0].timestamp ===
+        result[0].sentAt ===
           200,
         "wrong first"
       );
 
       assert(
-        result[1].timestamp ===
+        result[1].sentAt ===
           100,
         "wrong second"
       );
@@ -487,13 +493,13 @@ function deepEqual(
       );
 
       assert(
-        result[0].timestamp ===
+        result[0].sentAt ===
           300,
         "wrong record"
       );
 
       assert(
-        result[1].timestamp ===
+        result[1].sentAt ===
           200,
         "wrong record"
       );
@@ -607,7 +613,9 @@ await test(
         "text/plain",
       plaintext:
         "msg4",
-      timestamp:
+      sentAt:
+        400,
+      receivedAt:
         400,
     });
 
@@ -623,7 +631,9 @@ await test(
         "text/plain",
       plaintext:
         "msg5",
-      timestamp:
+      sentAt:
+        500,
+      receivedAt:
         500,
     });
 
@@ -705,19 +715,19 @@ await test(
     );
 
     assert(
-      result[0].timestamp ===
+      result[0].sentAt ===
         300,
       "expected newest first"
     );
 
     assert(
-      result[1].timestamp ===
+      result[1].sentAt ===
         200,
       "expected newest first"
     );
 
     assert(
-      result[2].timestamp ===
+      result[2].sentAt ===
         100,
       "expected newest first"
     );
@@ -754,13 +764,13 @@ await test(
     );
 
     assert(
-      result[0].timestamp ===
+      result[0].sentAt ===
         500,
       "expected newest first"
     );
 
     assert(
-      result[1].timestamp ===
+      result[1].sentAt ===
         400,
       "expected newest first"
     );
@@ -768,19 +778,19 @@ await test(
 );
 
 await test(
-  "query conversationA with beforeTimestamp",
+  "query conversationA with beforeSentAt",
   async () => {
 
     const result =
       await storage.envelopesGet({
         publicKeyHex:
           "conversationA",
-        beforeTimestamp:
+        beforeSentAt:
           300,
       });
 
     console.log(
-      "conversationA beforeTimestamp=300",
+      "conversationA beforeSentAt=300",
       result
     );
 
@@ -790,13 +800,13 @@ await test(
     );
 
     assert(
-      result[0].timestamp ===
+      result[0].sentAt ===
         200,
       "wrong first result"
     );
 
     assert(
-      result[1].timestamp ===
+      result[1].sentAt ===
         100,
       "wrong second result"
     );
@@ -825,13 +835,13 @@ await test(
     );
 
     assert(
-      result[0].timestamp ===
+      result[0].sentAt ===
         300,
       "wrong first result"
     );
 
     assert(
-      result[1].timestamp ===
+      result[1].sentAt ===
         200,
       "wrong second result"
     );
@@ -877,7 +887,7 @@ await test(
 
     const index =
       store.index(
-        "conversationTimestamp"
+        "conversationSentAt"
       );
 
     await new Promise(

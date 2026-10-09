@@ -2,9 +2,44 @@ import { PrivateIdentity } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
 import { EnvelopeStream } from "./envelope-stream.js";
+import { RealClock, RelayRateLimits } from "./rate-limiter.js";
+import { Authenticator } from "../auth/authenticator.js";
+import { IngestOutcome } from "../ingest/ingestor.js";
 import { EventTypes } from "../event/event-bus.js";
 
+// Relay record fields owned by sync. Sync writes back only these, so a
+// user's relaysPut during a sync (disabled, relayPkh, ...) is kept.
+const SYNC_FIELDS = Object.freeze([
+    "cursor",
+    "failureCount",
+    "lastSuccessAt",
+    "lastFailureAt",
+]);
+
 export class SyncEngine {
+
+    static DEFAULTS = Object.freeze({
+        concurrency: 6,
+        // Safety net against a relay that never says it is exhausted.
+        // The rate limit, not this, is what protects the relay.
+        maxRequestsPerSync: 1000,
+        backoffBaseMs: 30 * 1000,
+        backoffMaxMs: 60 * 60 * 1000,
+    });
+
+    /**
+     * Wait before retrying a relay after failureCount consecutive
+     * failures: 30s, 60s, 2m, ... capped at 1h.
+     */
+    static backoffMs(failureCount) {
+
+        const { backoffBaseMs, backoffMaxMs } = SyncEngine.DEFAULTS;
+
+        return Math.min(
+            backoffBaseMs * 2 ** (failureCount - 1),
+            backoffMaxMs
+        );
+    }
 
     constructor({
         identity,
@@ -14,6 +49,8 @@ export class SyncEngine {
         logger,
         eventBus,
         pkh,
+        clock = RealClock,
+        rateLimits = new RelayRateLimits({ clock }),
     }) {
 
         insist(identity, PrivateIdentity);
@@ -23,6 +60,7 @@ export class SyncEngine {
         insist(logger);
         insist(eventBus);
         insist(pkh);
+        insist(rateLimits, RelayRateLimits);
 
         this.identity = identity;
         this.transporter = transporter;
@@ -31,17 +69,22 @@ export class SyncEngine {
         this.ingestor = ingestor;
         this.eventBus = eventBus;
         this.pkh = pkh;
-        this.concurrencyLimiter = new ConcurrencyLimiter(6);
+        this.clock = clock;
+        this.rateLimits = rateLimits;
+        this.concurrencyLimiter = new ConcurrencyLimiter(SyncEngine.DEFAULTS.concurrency);
+
+        // relayPkh -> Authenticator, so the HMAC key is derived once.
+        this.authenticators = new Map();
     }
 
     async syncRelays(relays) {
 
-        const enabled = relays.filter(
-            relay => !relay.disabled
+        const due = relays.filter(
+            relay => !relay.disabled && this.isDue(relay)
         );
 
         const settled = await Promise.allSettled(
-            enabled.map(
+            due.map(
                 relay => this.syncRelay(relay)
             )
         );
@@ -57,72 +100,174 @@ export class SyncEngine {
             this.eventBus.publish({
                 type: EventTypes.ERROR,
                 error: x.reason,
-                relayUrl: enabled[i].relayUrl,
+                relayUrl: due[i].relayUrl,
             });
         });
 
     }
 
+    // False while the relay is backing off after failures or has asked
+    // us to wait (429).
+    isDue(relay) {
+
+        if (this.rateLimits.for(relay.relayUrl).isPaused()) {
+            return false;
+        }
+
+        const failureCount = relay.failureCount ?? 0;
+
+        if (failureCount === 0) {
+            return true;
+        }
+
+        return this.clock.now() >=
+            (relay.lastFailureAt ?? 0) + SyncEngine.backoffMs(failureCount);
+    }
+
     async syncRelay(relay) {
 
-        const envelopeStream = 
+        const before = { cursor: relay.cursor, failureCount: relay.failureCount };
+
+        const envelopeStream =
             new EnvelopeStream({
                 identity: this.identity,
                 relay,
                 transporter: this.transporter,
-                logger: this.logger
-            })
+                logger: this.logger,
+                clock: this.clock,
+                authenticator: this.authenticatorFor(relay),
+            });
 
-        let envelopeBytes = null;
-        let cnt = 0;
+        const rateLimiter = this.rateLimits.for(relay.relayUrl);
 
-        do { 
+        let stored = null;
 
-            cnt++;
+        for (let i = 0; i < SyncEngine.DEFAULTS.maxRequestsPerSync; i++) {
 
-            envelopeBytes = await this.concurrencyLimiter.run(
+            // Rate token first, so a request waiting on the relay's rate
+            // does not hold a concurrency slot other relays could use.
+            await rateLimiter.acquire();
+
+            const result = await this.concurrencyLimiter.run(
                 () => envelopeStream.next()
             );
 
-            await this.persist({
-                relay,
-                envelopeBytes
-            })
+            if (result.type === "throttled") {
+                rateLimiter.pause(this.clock.now() + result.retryAfterMs);
+                break;
+            }
 
+            if (result.type === "failure") {
+                this.eventBus.publish({
+                    type: EventTypes.ERROR,
+                    error: result.error,
+                    relayUrl: relay.relayUrl,
+                });
+                break;
+            }
 
-        } while ( envelopeBytes && cnt < 50 );
+            if (result.type === "exhausted") {
+                break;
+            }
 
-        const [stored] = await this.storage.relaysGet({ relayUrl: relay.relayUrl });
+            // "envelope" or "invalid-body". Ingest before advancing the
+            // cursor: if ingest throws (storage), the cursor stays and the
+            // envelope is fetched again next sync; dedup makes that safe.
+            await this.ingest(relay, result);
+
+            relay.cursor = result.cursor;
+
+            stored = await this.saveSyncState(relay);
+
+            // Deleted while syncing: stop, do not resurrect it.
+            if (!stored) {
+                return;
+            }
+        }
+
+        stored = await this.saveSyncState(relay);
 
         if (!stored) {
             return;
         }
 
-        this.eventBus.publish({
-            type: EventTypes.RELAY,
-            relay,
-            deleted: false,
-        });
-
+        if (
+            stored.cursor !== before.cursor ||
+            stored.failureCount !== before.failureCount
+        ) {
+            this.eventBus.publish({
+                type: EventTypes.RELAY,
+                relay: stored,
+                deleted: false,
+            });
+        }
     }
 
-    async persist({
-        relay,
-        envelopeBytes
-    }) {
+    // A rejected envelope (or a non-binary body) is skipped, never
+    // retried: it would fail the same way every time and stall the relay.
+    async ingest(relay, result) {
 
-        // Do not resurrect a relay deleted while this sync was running.
+        let rejected;
+
+        if (result.type === "invalid-body") {
+            rejected = { uuid: null, reason: "relay returned a non-binary body" };
+        }
+        else {
+            const ingested = await this.ingestor.ingest(result.bytes);
+
+            if (ingested.outcome === IngestOutcome.REJECTED) {
+                rejected = ingested;
+            }
+        }
+
+        if (rejected) {
+            this.eventBus.publish({
+                type: EventTypes.REJECTED,
+                relayUrl: relay.relayUrl,
+                cursor: result.cursor,
+                uuid: rejected.uuid,
+                reason: rejected.reason,
+            });
+        }
+    }
+
+    // Merge sync fields onto the current stored record. Returns the
+    // stored record, or null if the relay was deleted.
+    async saveSyncState(relay) {
+
         const [stored] = await this.storage.relaysGet({ relayUrl: relay.relayUrl });
 
         if (!stored) {
-            return;
+            return null;
         }
 
-        await this.storage.relaysPut(relay);
+        const merged = { ...stored };
 
-        if (envelopeBytes) {
-            await this.ingestor.ingest(envelopeBytes);
+        for (const field of SYNC_FIELDS) {
+            if (relay[field] !== undefined) {
+                merged[field] = relay[field];
+            }
         }
 
+        await this.storage.relaysPut(merged);
+
+        return merged;
+    }
+
+    authenticatorFor(relay) {
+
+        let authenticator = this.authenticators.get(relay.relayPkh);
+
+        if (!authenticator) {
+
+            authenticator = new Authenticator({
+                identity: this.identity,
+                relay: { relayPkh: relay.relayPkh },
+            });
+
+            this.authenticators.set(relay.relayPkh, authenticator);
+        }
+
+        return authenticator;
     }
 }

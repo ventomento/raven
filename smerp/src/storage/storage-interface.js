@@ -159,43 +159,46 @@ export class StorageInterface {
    *
    * {
    *   publicKeyHex,
-   *   beforeTimestamp,
+   *   beforeSentAt,
+   *   beforeReceivedAt?,
    *   limit
    * }
    *
    *   Return envelopes belonging to the conversation
-   *   whose timestamp is strictly less than
-   *   beforeTimestamp.
+   *   that sort after (older than) the given position.
    *
    * Pagination
    * ----------
    *
-   * beforeTimestamp is exclusive.
+   * The position is exclusive.
    *
-   * Example:
+   * With beforeSentAt only, returns records where:
    *
-   *   beforeTimestamp = 100
+   *   sentAt < beforeSentAt
    *
-   * returns records where:
+   * With beforeReceivedAt as well, the position is the pair, so
+   * records sharing the boundary sentAt are not skipped:
    *
-   *   timestamp < 100
+   *   sentAt < beforeSentAt ||
+   *   (sentAt === beforeSentAt && receivedAt < beforeReceivedAt)
    *
-   * not:
-   *
-   *   timestamp <= 100
+   * To page, pass the sentAt and receivedAt of the last record of
+   * the previous page. sentAt comes from a whole-second wire
+   * timestamp, so ties are common.
    *
    *
    * Ordering
    * --------
    *
    * Envelope queries that return multiple records must be sorted
-   * by timestamp descending (newest first).
+   * newest first: by sentAt descending, then receivedAt descending
+   * (see newestFirst).
    *
-   * Example:
+   * Example (sentAt, receivedAt):
    *
-   *   105
-   *   104
-   *   103
+   *   105000, 105400
+   *   105000, 105390
+   *   104000, 104200
    *   ...
    *
    * limit restricts the maximum number of records returned.
@@ -317,16 +320,19 @@ export class StorageInterface {
 RECORD MODELS
 ====================================================================
 
+All times are milliseconds since epoch and named ...At.
+
 Relay Record
 ------------
 
 relayUrl          (primary key)
 relayType
-disabled
-cursor
-lastSuccessAt
-lastFailureAt
-failureCount
+relayPkh
+disabled          (set by the user only; sync skips the relay)
+cursor            (sync-owned)
+lastSuccessAt     (sync-owned)
+lastFailureAt     (sync-owned)
+failureCount      (sync-owned; consecutive failures, drives backoff)
 
 
 Envelope Record
@@ -342,10 +348,10 @@ recipientPublicKeyHex    (required)
 contentType              (required)
 plaintext                (required)
 
-timestamp                (required)
+sentAt                   (required; sender's clock, whole seconds)
+receivedAt               (required; strictly increasing per client)
 
 relayUrl
-receivedAt
 
 
 Conversation Record
@@ -368,5 +374,26 @@ lastMessageAt
  * Implementations should also provide efficient retrieval of
  * conversation envelopes by:
  *
- * publicKeyHex + timestamp
+ * publicKeyHex + sentAt + receivedAt
  */
+/**
+ * The envelope order every implementation returns: sentAt descending,
+ * then receivedAt descending. receivedAt breaks ties between envelopes
+ * sent in the same second.
+ */
+export function newestFirst(a, b) {
+  return (b.sentAt - a.sentAt) || (b.receivedAt - a.receivedAt);
+}
+
+/**
+ * True if envelope sorts after (is older than) the pagination position
+ * { beforeSentAt, beforeReceivedAt? }. See envelopesGet.
+ */
+export function isBefore(envelope, { beforeSentAt, beforeReceivedAt }) {
+
+  if (envelope.sentAt !== beforeSentAt || beforeReceivedAt === undefined) {
+    return envelope.sentAt < beforeSentAt;
+  }
+
+  return envelope.receivedAt < beforeReceivedAt;
+}

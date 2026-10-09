@@ -4,6 +4,8 @@
 
 import {
   StorageInterface,
+  newestFirst,
+  isBefore,
 } from "./storage-interface.js";
 
 export class StorageMemory
@@ -43,6 +45,17 @@ export class StorageMemory
 
   async envelopesGet(options = {}) {
 
+    // Primary key lookup. Ingest dedups every envelope through this.
+    if (options.uuid) {
+
+      const record =
+        this.envelopes.get(options.uuid);
+
+      return record
+        ? [structuredClone(record)]
+        : [];
+    }
+
     let results =
       Array.from(
         this.envelopes.values()
@@ -51,14 +64,6 @@ export class StorageMemory
     // =====================================================
     // FILTERS
     // =====================================================
-
-    if (options.uuid) {
-
-      results =
-        results.filter(
-          x => x.uuid === options.uuid
-        );
-    }
 
     if (options.publicKeyHex) {
 
@@ -70,13 +75,11 @@ export class StorageMemory
         );
     }
 
-    if (options.beforeTimestamp !== undefined) {
+    if (options.beforeSentAt !== undefined) {
 
       results =
         results.filter(
-          x =>
-            x.timestamp <
-            options.beforeTimestamp
+          x => isBefore(x, options)
         );
     }
 
@@ -84,10 +87,7 @@ export class StorageMemory
     // SORT (newest first)
     // =====================================================
 
-    results.sort(
-      (a, b) =>
-        b.timestamp - a.timestamp
-    );
+    results.sort(newestFirst);
 
     // =====================================================
     // LIMIT

@@ -1,13 +1,31 @@
-
-import { decrypt, PrivateIdentity } from "../../../smep/src/index.js";
+import { decryptEnvelope, PrivateIdentity, Serializer, bytesToHex } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
 import { EventBus, EventTypes } from "../event/event-bus.js";
 import { ConcurrencyLimiter } from "../sync/concurrency-limiter.js";
+import { RealClock } from "../sync/rate-limiter.js";
+
+export const IngestOutcome = Object.freeze({
+  STORED: "stored",          // new envelope, persisted and announced
+  DUPLICATE: "duplicate",    // already stored
+  REJECTED: "rejected",      // malformed or undecryptable, never will be
+});
 
 // =====================================================
 // Ingestor
 // =====================================================
 
+/**
+ * Turns envelope bytes from a relay into stored records.
+ *
+ * ingest() resolves with { outcome, uuid, envelope?, reason? }:
+ *   - a problem with the envelope itself resolves as REJECTED. Retrying
+ *     gives the same result, so the caller should move past it.
+ *   - a problem with the environment (storage) rejects the promise. The
+ *     envelope is fine, so the caller should fetch it again later.
+ *
+ * Envelopes are unpacked before decryption so duplicates (the same
+ * envelope from another relay) are dropped without decrypting them.
+ */
 export class Ingestor {
 
   constructor({
@@ -15,6 +33,7 @@ export class Ingestor {
     identity,
     eventBus,
     logger,
+    clock = RealClock,
   }) {
 
     insist(identity, PrivateIdentity);
@@ -27,6 +46,9 @@ export class Ingestor {
     this.localPublicHex = this.identity.publicKeyHex;
     this.eventBus = eventBus;
     this.logger = logger;
+    this.clock = clock;
+    // Last receivedAt handed out; see buildEnrichedEnvelope.
+    this.lastReceivedAt = 0;
     // Serializes dedup check + persist. Relays are synced in parallel and
     // every envelope is on every relay, so the same envelope can be
     // ingested twice at once; without this both copies pass the dedup
@@ -35,7 +57,7 @@ export class Ingestor {
   }
 
   isIdentity(publicHex){
-    
+
     return (this.localPublicHex === publicHex);
 
   }
@@ -46,21 +68,39 @@ export class Ingestor {
 
   async ingest(envelopeBytes) {
 
-    insist(envelopeBytes, ArrayBuffer);
+    let unpacked;
 
-    const envelope = await decrypt({
-      identity: this.identity,
-      envelopeBytes
-    });
+    try {
+      unpacked = Serializer.unpack(envelopeBytes);
+    }
+    catch (error) {
+      return this.rejected(null, error);
+    }
 
-    const enrichedEnvelope = 
-      await this.buildEnrichedEnvelope({
-          envelope,
-      })
+    const uuid = bytesToHex(unpacked.uuid);
+
+    // Fast path, outside the lock: most duplicates are caught here.
+    if (await this.checkDuplicate(uuid)) {
+      return { outcome: IngestOutcome.DUPLICATE, uuid };
+    }
+
+    let envelope;
+
+    try {
+      envelope = await decryptEnvelope({
+        identity: this.identity,
+        envelope: unpacked,
+      });
+    }
+    catch (error) {
+      return this.rejected(uuid, error);
+    }
+
+    const enrichedEnvelope = this.buildEnrichedEnvelope(envelope);
 
     const stored = await this.writeLock.run(async () => {
 
-      if ( await this.checkDuplicate(envelope.uuid) ) {
+      if ( await this.checkDuplicate(uuid) ) {
         return false;
       }
 
@@ -70,7 +110,7 @@ export class Ingestor {
     });
 
     if (!stored) {
-      return false;
+      return { outcome: IngestOutcome.DUPLICATE, uuid };
     }
 
     this.eventBus.publish({
@@ -78,7 +118,14 @@ export class Ingestor {
       envelope: enrichedEnvelope,
     });
 
-    return true;
+    return { outcome: IngestOutcome.STORED, uuid, envelope: enrichedEnvelope };
+  }
+
+  rejected(uuid, error) {
+
+    this.logger.warn("Ingestor: envelope rejected:", { uuid, reason: error.message });
+
+    return { outcome: IngestOutcome.REJECTED, uuid, reason: error.message };
   }
 
   async envelopePersist(envelope){
@@ -108,10 +155,16 @@ export class Ingestor {
   // ENRICHMENT
   // =====================================================
 
-  async buildEnrichedEnvelope({
-    envelope,
-    receivedAt,
-  }) {
+  // Times in stored records are milliseconds since epoch, named ...At.
+  // The wire timestamp (smep, seconds) becomes sentAt here.
+  //
+  // receivedAt is strictly increasing per client, so it orders envelopes
+  // that share a sentAt second in the order they were fetched.
+  buildEnrichedEnvelope(envelope) {
+
+    const { timestamp, ...rest } = envelope;
+
+    this.lastReceivedAt = Math.max(this.clock.now(), this.lastReceivedAt + 1);
 
     const outbound = this.isIdentity( envelope.senderPublicKeyHex );
 
@@ -121,12 +174,13 @@ export class Ingestor {
         : envelope.senderPublicKeyHex;
 
     return {
-      ...envelope,
+      ...rest,
+      sentAt: timestamp * 1000,
       publicKeyHex,
       direction: outbound
         ? "outbound"
         : "inbound",
-      receivedAt: Date.now() / 1000, //second since epoc.
+      receivedAt: this.lastReceivedAt,
       read: outbound,
     };
   }
@@ -156,9 +210,9 @@ export class Ingestor {
 
       lastMessageAt:
         existingConversation &&
-        existingConversation.lastMessageAt > envelope.timestamp
+        existingConversation.lastMessageAt > envelope.sentAt
           ? existingConversation.lastMessageAt
-          : envelope.timestamp,
+          : envelope.sentAt,
     };
 
     if (! await this.storage.conversationsPut(conversation)) {
@@ -172,6 +226,6 @@ export class Ingestor {
     });
 
     return conversation;
-  } 
+  }
 
 }

@@ -12,6 +12,8 @@ import {
 } from "../../index.js";
 
 import { SmerpServer } from "../src/server/index.js";
+import { StorageMemory } from "../src/storage/storage-memory.js";
+import { VirtualClock, FakeRelays } from "./helpers/fakes.js";
 
 // End-to-end against the mock relay on an ephemeral port.
 
@@ -269,4 +271,97 @@ test("records returned by get are detached copies", async (t) => {
     const [again] = await client.relaysGet();
     assert.equal(again.relayType, "archive");
 
+});
+
+// =====================================================
+// Relay protection and health, with a fake transport
+// =====================================================
+
+async function startFakeClient(t, { relayUrls = [], storage = new StorageMemory() } = {}) {
+
+    const clock = new VirtualClock();
+    const relays = new FakeRelays(clock);
+
+    for (const relayUrl of relayUrls) {
+        await storage.relaysPut({ relayUrl, relayType: "archive", relayPkh: SmerpServer.PUBLIC_KEY_HEX });
+    }
+
+    const client = new SmerpClient({
+        identity: await PrivateIdentity.generate(),
+        transporter: relays,
+        storage,
+        clock,
+        syncIntervalMs: 60 * 60 * 1000,
+    });
+
+    await client.start();
+    t.after(() => client.stop());
+    await client.sync();
+
+    return { client, clock, relays, storage };
+}
+
+test("start re-enables relays that an older version disabled after failures", async (t) => {
+
+    const storage = new StorageMemory();
+    await storage.init();
+    const base = { relayType: "archive", relayPkh: SmerpServer.PUBLIC_KEY_HEX };
+    await storage.relaysPut({ ...base, relayUrl: "http://legacy.test", disabled: true, failureCount: 3 });
+    await storage.relaysPut({ ...base, relayUrl: "http://user.test", disabled: true, failureCount: 0 });
+
+    const { client } = await startFakeClient(t, { storage });
+
+    const [legacy] = await client.relaysGet({ relayUrl: "http://legacy.test" });
+    assert.equal(legacy.disabled, false);
+    assert.equal(legacy.failureCount, 0);
+
+    const [user] = await client.relaysGet({ relayUrl: "http://user.test" });
+    assert.equal(user.disabled, true);
+});
+
+test("send skips disabled relays", async (t) => {
+
+    const { client, relays, storage } = await startFakeClient(t, {
+        relayUrls: ["http://on.test", "http://off.test"],
+    });
+
+    const [off] = await client.relaysGet({ relayUrl: "http://off.test" });
+    await client.relaysPut({ ...off, disabled: true });
+
+    const sent = await client.send(client.publicKeyHex, "hi");
+
+    assert.deepEqual(sent.delivered, ["http://on.test"]);
+    assert.equal(
+        relays.requests.filter(r => r.method === "POST" && r.relayUrl === "http://off.test").length,
+        0
+    );
+});
+
+test("a 429 on send pauses that relay, later sends fail fast for it", async (t) => {
+
+    const { client, clock, relays } = await startFakeClient(t, {
+        relayUrls: ["http://busy.test", "http://ok.test"],
+    });
+
+    relays.hook = (request) =>
+        request.method === "POST" && request.relayUrl === "http://busy.test"
+            ? { status: 429, headers: { "retry-after": "60" } }
+            : null;
+
+    const first = await client.send(client.publicKeyHex, "one");
+    assert.deepEqual(first.delivered, ["http://ok.test"]);
+
+    const posts = () => relays.requests.filter(r => r.method === "POST" && r.relayUrl === "http://busy.test").length;
+    assert.equal(posts(), 1);
+
+    const second = await client.send(client.publicKeyHex, "two");
+    assert.deepEqual(second.failed.map(f => f.relayUrl), ["http://busy.test"]);
+    assert.match(second.failed[0].error.message, /asked to wait/);
+    assert.equal(posts(), 1);
+
+    clock.advance(60 * 1000);
+    relays.hook = null;
+
+    const third = await client.send(client.publicKeyHex, "three");
+    assert.equal(third.delivered.length, 2);
 });

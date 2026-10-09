@@ -62,6 +62,8 @@ function summarize(event) {
       return event.phase;
     case EventTypes.STATUS:
       return event.status;
+    case EventTypes.REJECTED:
+      return `${event.relayUrl} cursor=${event.cursor} ${event.reason}`;
     case EventTypes.ERROR:
       return `${event.relayUrl ?? ""} ${event.error?.message ?? event.error}`;
     default:
@@ -138,7 +140,7 @@ async function show(client) {
     dir: e.direction,
     peer: nameOf(e.publicKeyHex),
     text: text(e.plaintext),
-    time: new Date(e.timestamp * 1000).toLocaleTimeString(),
+    time: new Date(e.sentAt).toLocaleTimeString(),
     uuid: e.uuid.slice(0, 10) + "…",
   })));
 }

@@ -22,7 +22,8 @@ export { RequestBuilder } from "./request/request-builder.js";
 export { SyncEngine } from "./sync/sync-engine.js";
 export { EnvelopeStream } from "./sync/envelope-stream.js";
 export { ConcurrencyLimiter } from "./sync/concurrency-limiter.js";
-export { Ingestor } from "./ingest/ingestor.js";
+export { RateLimiter, RelayRateLimits } from "./sync/rate-limiter.js";
+export { Ingestor, IngestOutcome } from "./ingest/ingestor.js";
 
 // relay auth
 export { Authenticator } from "./auth/authenticator.js";

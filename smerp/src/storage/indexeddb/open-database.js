@@ -1,6 +1,7 @@
 import {
   DB_VERSION,
   STORES,
+  INDEXES,
 } from "./constants.js";
 
 export function openDatabase(databaseName) {
@@ -16,9 +17,17 @@ export function openDatabase(databaseName) {
       reject(request.error);
     };
 
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
 
       const db = request.result;
+
+      // v1 held times in seconds under other names. There is no data
+      // worth keeping, so start over rather than migrate.
+      if (event.oldVersion < 2) {
+        for (const name of [...db.objectStoreNames]) {
+          db.deleteObjectStore(name);
+        }
+      }
 
       //
       // envelopes
@@ -38,11 +47,13 @@ export function openDatabase(databaseName) {
             }
           );
 
+        // receivedAt breaks ties between envelopes sent in the same second.
         store.createIndex(
-          "conversationTimestamp",
+          INDEXES.CONVERSATION_SENT_AT,
           [
             "publicKeyHex",
-            "timestamp",
+            "sentAt",
+            "receivedAt",
           ],
           {
             unique: false,
