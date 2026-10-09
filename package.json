@@ -6,6 +6,7 @@
     ".": "./index.js",
     "./smep": "./smep/src/index.js",
     "./smerp": "./smerp/src/index.js",
-    "./testing": "./smerp/src/server/index.js"
+    "./testing": "./smerp/src/server/index.js",
+    "./webui": "./webui/src/index.js"
   }
 }

@@ -9,7 +9,7 @@ Project discussion and docs live at the forum: https://www.depvana.com/topic/505
 There is no build step, linter, or npm script. Code is plain ES modules (`"type": "module"`) run directly by Node (v20) or the browser.
 
 ```sh
-node --test smep/tests/ smerp/tests/            # all tests (node:test + node:assert/strict)
+node --test smep/tests/ smerp/tests/ webui/tests/   # all tests (node:test + node:assert/strict)
 node --test smep/tests/protocol.test.js         # single file
 node --test --test-name-pattern="clamp" smep/tests/   # single test by name
 node smerp/src/server/run-server.js             # mock relay on :8000
@@ -24,6 +24,7 @@ A headless library: no UI ships with it. Two layers: `smerp` depends on `smep`; 
 - `./smep` → `smep/src/index.js`: all primitives, for building a custom client.
 - `./smerp` → `smerp/src/index.js`: client building blocks (storage/transport interfaces, sync, ingest, auth).
 - `./testing` → `smerp/src/server/index.js`: mock relay. Uses `node:http`, so it must never be re-exported from `.` or `./smerp`.
+- `./webui` → `webui/src/index.js`: browser UI (`WebUi`). Uses the DOM, so it must never be re-exported from `.` either.
 
 Classes are checked with `instanceof` via `insist`, so every module must import identities from `smep`, never a copy.
 
@@ -43,6 +44,13 @@ Classes are checked with `instanceof` via `insist`, so every module must import 
 - Auth (spec: `smerp/src/auth/auth_rfc.txt`) is stateless. HMAC key = hash of the X25519 shared secret between client and relay (`relay.relayPkh`). The client sends `x-smerp-timestamp` (Unix seconds) and `x-smerp-signature` = HMAC(timestamp). This replaced ed25519 signatures; `@noble/curves` is no longer used.
 - Pluggable backends follow documented interface contracts: `storage/storage-interface.js` (gets return arrays of detached copies; implementations `StorageMemory`, `indexeddb/`) and `transport/transport-interface.js` (`transport({url, options, timeout}) → {status, headers, body}`).
 - `server/smerp-server.js` + `storage-server.js` are a **mock relay for testing only**: in-memory append-only record store on `node:http`, with a fixed keypair (`SmerpServer.PUBLIC_KEY_HEX` is the `relayPkh`). `smerp/tests/smerp-client.test.js` runs clients end-to-end against it on an ephemeral port. Register cleanup with `t.after` so a failing test can't hang the run.
+
+**webui** is a browser UI on top of `SmerpClient` (third layer: webui → smerp → smep). Vanilla DOM, no dependencies.
+- `new WebUi({ privateKeyHex, root = document.body, storage? }).start()` derives the identity, creates the client with `IndexedDbStorage(publicKeyHex)` by default, injects `styles/webui.css` via `import.meta.url`, and mounts `AppShell`. `stop()` tears it all down. The private key is never stored.
+- `AppShell` (header, tab bar, active view) holds the UI's only `client.on` subscriptions and forwards each event to the active view. Views (`views/`) implement `mount(container)`, `onEvent(event)`, `unmount()` and never subscribe themselves. Reusable pieces live in `components/`.
+- Peer content is untrusted: build DOM only with `h()` from `dom.js` (text nodes), never `innerHTML`.
+- Display is text vs file only: `TEXT_UTF8` renders as text; any other content type gets a download button. Envelopes carry no filename or MIME type, so `file-type.js` guesses the extension from the file's leading bytes (no extension if unknown). Sending a file uses `ContentTypes.FILE`.
+- Demo: run the mock relay, `python3 -m http.server 8080` from the repo root, open `http://localhost:8080/webui/demo/`. The relay key is `SmerpServer.PUBLIC_KEY_HEX`.
 
 ## Current state
 

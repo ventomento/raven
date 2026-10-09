@@ -1,0 +1,93 @@
+<!doctype html>
+<!--
+  webui demo. Serve the repo root over http (ES modules don't load from file://):
+
+    node smerp/src/server/run-server.js     mock relay on :8000
+    python3 -m http.server 8080             from the repo root
+
+  then open http://localhost:8080/webui/demo/
+
+  Keys are never stored: paste a private key or generate a new identity on
+  each load. Message history is kept in IndexedDB per identity, so pasting
+  the same key again brings it back.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>smerp</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #f6f7f9;
+      color: #1b1f24;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0f1216; color: #e6e8eb; color-scheme: dark; }
+    }
+    form {
+      width: min(440px, calc(100% - 32px));
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    input, button {
+      font: inherit;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #8884;
+      background: transparent;
+      color: inherit;
+    }
+    input { font-family: ui-monospace, Menlo, Consolas, monospace; }
+    button { cursor: pointer; }
+    button[type="submit"] { background: #2f6fec; border-color: #2f6fec; color: #fff; font-weight: 600; }
+    .or { text-align: center; opacity: 0.6; }
+    .error { color: #c93c37; min-height: 1.4em; }
+  </style>
+</head>
+<body>
+
+  <form id="login">
+    <h1>smerp</h1>
+    <input id="key" type="password" placeholder="Private key (hex)" autocomplete="off">
+    <button type="submit">Open</button>
+    <div class="or">or</div>
+    <button id="generate" type="button">Generate new identity</button>
+    <div class="error" id="error" role="alert"></div>
+  </form>
+
+  <script type="module">
+    import { PrivateIdentity } from "../../index.js";
+    import { WebUi } from "../src/index.js";
+
+    const form = document.getElementById("login");
+    const errorLine = document.getElementById("error");
+
+    async function open(privateKeyHex) {
+      try {
+        await new WebUi({ privateKeyHex }).start();
+        document.head.querySelector("style").remove();
+      }
+      catch (error) {
+        errorLine.textContent = error.message;
+      }
+    }
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      void open(document.getElementById("key").value.trim());
+    });
+
+    document.getElementById("generate").addEventListener("click", async () => {
+      const identity = await PrivateIdentity.generate();
+      void open(await identity.exportPrivateHex());
+    });
+  </script>
+
+</body>
+</html>
