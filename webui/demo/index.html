@@ -10,6 +10,12 @@
   Keys are never stored: paste a private key or generate a new identity on
   each load. Message history is kept in IndexedDB per identity, so pasting
   the same key again brings it back.
+
+  The mock relay below is seeded on start.
+
+  example add of relay (url, pubKeyHex)
+  http://localhost:8000
+  0xeb03b29ead5416dae89af429e77f649c3e9f8628cb032a12aa17a03e1d6bf249
 -->
 <html lang="en">
 <head>
@@ -68,9 +74,15 @@
     const form = document.getElementById("login");
     const errorLine = document.getElementById("error");
 
+    const relays = [{
+      relayUrl: "http://localhost:8000",
+      relayType: "relay",
+      relayPkh: "eb03b29ead5416dae89af429e77f649c3e9f8628cb032a12aa17a03e1d6bf249",
+    }];
+
     async function open(privateKeyHex) {
       try {
-        await new WebUi({ privateKeyHex }).start();
+        await new WebUi({ privateKeyHex, relays }).start();
         document.head.querySelector("style").remove();
       }
       catch (error) {

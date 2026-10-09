@@ -27,7 +27,7 @@ export class Header {
     this.el = h("header", { class: "header" },
       h("div", { class: "header-row" },
         h("div", { class: "brand" },
-          h("strong", {}, "smerp"),
+          h("strong", {}, "smerp-client"),
           h("span", { class: "mono muted", title: publicKeyHex }, shortHex(publicKeyHex))
         ),
         this.syncButton

@@ -66,9 +66,11 @@ export class RelaysView {
 
     return h("li", { class: `card relay${relay.disabled ? " disabled" : ""}` },
       h("div", { class: "relay-url" }, relay.relayUrl),
-      h("div", { class: "muted small" },
-        `${relay.relayType} · key `,
-        h("span", { class: "mono", title: relay.relayPkh }, shortHex(relay.relayPkh))
+      h("dl", { class: "relay-meta small" },
+        h("dt", { class: "muted" }, "Type"),
+        h("dd", {}, relay.relayType),
+        h("dt", { class: "muted" }, "Public key"),
+        h("dd", { class: "mono", title: relay.relayPkh }, shortHex(relay.relayPkh))
       ),
       h("div", { class: `small ${failing ? "warn" : "muted"}` },
         relay.disabled

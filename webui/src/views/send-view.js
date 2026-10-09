@@ -6,12 +6,15 @@ import { ComposeForm } from "../components/compose-form.js";
 /**
  * New message to any recipient. After sending, opens the thread with
  * that recipient.
+ *
+ * recipientPublicKeyHex: prefills the (still editable) recipient field.
  */
 export class SendView {
 
-  constructor({ client, shell }) {
+  constructor({ client, shell, recipientPublicKeyHex = null }) {
     this.client = client;
     this.shell = shell;
+    this.recipientPublicKeyHex = recipientPublicKeyHex;
   }
 
   mount(container) {
@@ -25,6 +28,11 @@ export class SendView {
       h("h2", {}, "New message"),
       compose.el
     );
+
+    if (this.recipientPublicKeyHex) {
+      compose.recipientInput.value = this.recipientPublicKeyHex;
+      compose.textInput.focus();
+    }
   }
 
   onEvent() {}

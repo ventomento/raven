@@ -292,10 +292,6 @@
   margin-top: var(--gap);
 }
 
-.webui .card.danger {
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
-}
-
 .webui .row {
   display: flex;
   align-items: center;
@@ -362,6 +358,19 @@
 .webui .relay.disabled .relay-url {
   color: var(--muted);
   text-decoration: line-through;
+}
+
+.webui .relay-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  margin: 0;
+}
+
+.webui .relay-meta dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .webui .relay-url {

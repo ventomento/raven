@@ -39,7 +39,7 @@ export class IdentityView {
           copyButton(() => publicKeyHex)
         )
       ),
-      h("section", { class: "card danger" },
+      h("section", { class: "card" },
         h("div", { class: "label" }, "Private key"),
         h("p", { class: "muted small" }, "Anyone with this key can read your messages and send as you. Keep it secret."),
         privateValue,

@@ -29,7 +29,7 @@ const TABS = [
  */
 export class AppShell {
 
-  constructor({ client, root }) {
+  constructor({ client, root, recipientPublicKeyHex = null }) {
 
     this.client = client;
     this.root = root;
@@ -59,14 +59,21 @@ export class AppShell {
       this.main
     );
 
-    this.selectTab("conversations");
+    if (recipientPublicKeyHex) {
+      this.selectTab("send", { recipientPublicKeyHex });
+    }
+    else {
+      this.selectTab("conversations");
+    }
+
     this.updateUnread();
   }
 
-  selectTab(id) {
+  // options: extra constructor options for the view.
+  selectTab(id, options = {}) {
     const { View } = TABS.find(tab => tab.id === id);
     this.tabBar.select(id);
-    this.#show(new View({ client: this.client, shell: this }));
+    this.#show(new View({ ...options, client: this.client, shell: this }));
   }
 
   openThread(publicKeyHex) {
