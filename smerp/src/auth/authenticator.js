@@ -1,5 +1,6 @@
 import { insist, PrivateIdentity, PublicIdentity } from "../../../smep/src/index.js";
-import { symHmacKey, makeHeaders, signedHeaders } from "./protocol.js";
+import { symHmacKey, signedHeaders } from "./protocol.js";
+import { RealClock } from "../sync/rate-limiter.js";
 
 // Authentication Claim: I own the private key at timestamp.
 
@@ -8,12 +9,14 @@ export class Authenticator {
     constructor({
         identity,
         relay,
+        clock = RealClock,
     }) {
 
         insist(identity, PrivateIdentity);
 
         this.identity = identity;
         this.relay = relay;
+        this.clock = clock;
         this._symKey = null;
 
     }
@@ -38,13 +41,14 @@ export class Authenticator {
     async headers() {
 
         if (!this.relay.relayPkh) {
-            return makeHeaders("not configured", "not configured");
+            throw new Error("Relay has no relayPkh: cannot authenticate");
         }
 
         const hmacKey = await this.symKey();
 
         return await signedHeaders(
-            hmacKey
+            hmacKey,
+            this.clock.now()
         )
 
     }

@@ -103,29 +103,37 @@ export class SmerpServer {
   const relayIdentity =
     await this.identityPromise;
 
-  const clientIdentity =
-    await PublicIdentity.fromPublicHex(
-      pkh
-    );
-
   const data =
     new TextEncoder().encode(
       timestamp
     );
 
-  return verify({
-    privateIdentity:
-      relayIdentity,
+  // A malformed or low-order pkh, or a non-hex signature, throws:
+  // that is a failed authentication (401), not a server error.
+  try {
 
-    publicIdentity:
-      clientIdentity,
+    const clientIdentity =
+      await PublicIdentity.fromPublicHex(
+        pkh
+      );
 
-    dataHex:
-      bytesToHex(data),
+    return await verify({
+      privateIdentity:
+        relayIdentity,
 
-    signatureHex:
-      signature
-  });
+      publicIdentity:
+        clientIdentity,
+
+      dataHex:
+        bytesToHex(data),
+
+      signatureHex:
+        signature
+    });
+
+  } catch {
+    return false;
+  }
 }
 
   // ============================================================
@@ -368,12 +376,6 @@ export class SmerpServer {
 
     const idRaw =
       url.searchParams.get("cursor");
-
-    if (!pkh) {
-      res.statusCode = 400;
-      res.end();
-      return;
-    }
 
     const id =
       idRaw === null

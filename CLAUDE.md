@@ -13,7 +13,10 @@ node --test smep/tests/ smerp/tests/ webui/tests/   # all tests (node:test + nod
 node --test smep/tests/protocol.test.js         # single file
 node --test --test-name-pattern="clamp" smep/tests/   # single test by name
 node smerp/src/server/run-server.js             # mock relay on :8000
+node playground/repl.js                         # REPL: 2 mock relays (:8001, :8002), clients alice/alice2/bob/carol
 ```
+
+`playground/repl.js` imports `raven` and `raven/testing` by package self-reference, so it exercises the real `exports` map.
 
 `smerp/src/storage/indexeddb/browser-test.html` exercises the IndexedDB storage in a browser.
 
@@ -25,6 +28,8 @@ A headless library: no UI ships with it. Two layers: `smerp` depends on `smep`; 
 - `./smerp` → `smerp/src/index.js`: client building blocks (storage/transport interfaces, sync, ingest, auth).
 - `./testing` → `smerp/src/server/index.js`: mock relay. Uses `node:http`, so it must never be re-exported from `.` or `./smerp`.
 - `./webui` → `webui/src/index.js`: browser UI (`WebUi`). Uses the DOM, so it must never be re-exported from `.` either.
+
+Protocol specs (plain text, kept in sync with the code; the code is the source of truth): `smep/smep_rfc.txt` (envelope format, encryption), `smerp/smerp_rfc.txt` (relay upload/download, relay types, federation), `smerp/src/auth/auth_rfc.txt` (GET auth).
 
 Classes are checked with `instanceof` via `insist`, so every module must import identities from `smep`, never a copy.
 
@@ -41,8 +46,9 @@ Classes are checked with `instanceof` via `insist`, so every module must import 
 - `send(recipientPublicKeyHex, plaintext, { contentType })` takes a `string` or `Uint8Array`. It encrypts via smep and POSTs the envelope bytes to every relay. It throws `DispatchError` if none accepted it, and returns `{ uuid, delivered, failed }`. It stores nothing itself: every envelope, including our own, enters storage only through sync → `Ingestor.ingest` (a single ingestion path). `send` starts a sync; a `sync()` call made during a running sync schedules one rerun.
 - `Ingestor.writeLock` serializes the dedup check and persist. Relays sync in parallel and hold the same envelopes, so without it duplicates get stored and counted twice (`smerp/tests/ingestor.test.js` reproduces this with IndexedDB-like async storage). Don't remove it.
 - Receiving: `SyncEngine` syncs all non-disabled relays in parallel through a shared `ConcurrencyLimiter`. Per relay, an `EnvelopeStream` pages `GET /envelopes` using a persisted `relay.cursor` and the `x-smerp-*` headers. `Ingestor` decrypts each envelope, writes it to storage, and publishes `envelope` and `conversation` events.
+- Two limiters, both in `sync/`: `ConcurrencyLimiter` caps how many requests run at once (protects the client); `RelayRateLimits` holds one token-bucket `RateLimiter` per `relayUrl` (protects the relay), shared by `SyncEngine` and `send`. A 429 pauses that relay's limiter until `Retry-After`. Sync waits it out; `send` fails fast for a paused relay. Time comes from an injected `clock` (`RealClock` by default) so tests can fake it.
 - Auth (spec: `smerp/src/auth/auth_rfc.txt`) is stateless. HMAC key = hash of the X25519 shared secret between client and relay (`relay.relayPkh`). The client sends `x-smerp-timestamp` (Unix seconds) and `x-smerp-signature` = HMAC(timestamp). This replaced ed25519 signatures; `@noble/curves` is no longer used.
-- Pluggable backends follow documented interface contracts: `storage/storage-interface.js` (gets return arrays of detached copies; implementations `StorageMemory`, `indexeddb/`) and `transport/transport-interface.js` (`transport({url, options, timeout}) → {status, headers, body}`).
+- Pluggable backends follow documented interface contracts: `storage/storage-interface.js` (gets return arrays of detached copies; implementations `StorageMemory`, `indexeddb/`; a new backend should run the shared ordering and pagination suite `storageContract(test, () => new Storage())` from `smerp/tests/helpers/storage-contract.js`) and `transport/transport-interface.js` (`transport({url, options, timeout}) → {status, headers, body}`).
 - `server/smerp-server.js` + `storage-server.js` are a **mock relay for testing only**: in-memory append-only record store on `node:http`, with a fixed keypair (`SmerpServer.PUBLIC_KEY_HEX` is the `relayPkh`). `smerp/tests/smerp-client.test.js` runs clients end-to-end against it on an ephemeral port. Register cleanup with `t.after` so a failing test can't hang the run.
 
 **webui** is a browser UI on top of `SmerpClient` (third layer: webui → smerp → smep). Vanilla DOM, no dependencies.
@@ -51,9 +57,3 @@ Classes are checked with `instanceof` via `insist`, so every module must import 
 - Peer content is untrusted: build DOM only with `h()` from `dom.js` (text nodes), never `innerHTML`.
 - Display is text vs file only: `TEXT_UTF8` renders as text; any other content type gets a download button. Envelopes carry no filename or MIME type, so `file-type.js` guesses the extension from the file's leading bytes (no extension if unknown). Sending a file uses `ContentTypes.FILE`.
 - Demo: run the mock relay, `python3 -m http.server 8080` from the repo root, open `http://localhost:8080/webui/demo/`. The relay key is `SmerpServer.PUBLIC_KEY_HEX`.
-
-## Current state
-
-The sync/auth refactor is in progress:
-- `auth_rfc.txt` specifies SHA-512/HMAC-SHA-512, but the code uses SHA-256/HMAC-SHA-256.
-- 4 tests fail (auth-related: `protocol.auth.test.js`, `auth-protocol.test.js`, `authenticator.test.js`).

@@ -1,0 +1,99 @@
+SMEP: Secure Messaging Envelope Protocol, Version 1
+
+1. Overview
+===========
+
+SMEP encrypts a message from one X25519 identity to another and packs it
+into a self-contained binary envelope.
+
+    X25519        RFC 7748
+    SHA-256       FIPS 180-4
+    AES-256-GCM   NIST SP 800-38D
+    UUID v4       RFC 4122
+
+All integers are big-endian. Keys, UUIDs, IVs, ciphertext and tags are
+opaque bytes, written as-is.
+
+
+2. Identities
+=============
+
+Private key: 32 random bytes from a CSPRNG, clamped per RFC 7748:
+
+    k[0]  &= 248
+    k[31] &= 127
+    k[31] |= 64
+
+Clamping is idempotent, so a stored key may be clamped or not.
+
+Public key: X25519(private_key, 9), the 32-byte RFC 7748 encoding.
+The public key is the identity's address.
+
+
+3. Encryption
+=============
+
+    shared = X25519(sender_private_key, recipient_public_key)
+    key    = SHA256(shared)
+    iv     = 12 random bytes
+    ciphertext || tag = AES-256-GCM(key, iv, plaintext)     (no AAD)
+
+The tag is 16 bytes. If shared is all zero bytes, the operation MUST fail.
+
+The key is the same in both directions, so either party can decrypt. To
+decrypt, compute shared with the local private key and the peer's public
+key. The peer is sender_public_key, or recipient_public_key if the local
+identity is the sender (decrypting one's own sent envelope). If the tag
+does not verify, the envelope MUST be rejected.
+
+Plaintext is UTF-8 text when content_type is 0x01, otherwise raw bytes.
+
+
+4. Envelope Format
+==================
+
+    offset  size  field                  type
+    ------  ----  ---------------------  -------------------------------
+    0       1     version                uint8, 0x01
+    1       16    uuid                   random UUID v4
+    17      32    sender_public_key      X25519 public key
+    49      32    recipient_public_key   X25519 public key
+    81      8     timestamp              uint64, Unix seconds, sender clock
+    89      1     content_type           uint8, see section 5
+    90      4     payload_size           uint32, = 12 + len(ciphertext) + 16
+    94      12    iv
+    106     n     ciphertext             n = payload_size - 28
+    106+n   16    tag
+
+The header is 94 bytes. The total length MUST equal 94 + payload_size.
+
+A parser MUST reject an envelope with a version other than 0x01, a
+payload_size below 28, or a total length that does not match.
+
+
+5. Content Types
+================
+
+    0x01  TEXT_UTF8
+    0x02  IMAGE
+    0x03  VIDEO
+    0x04  AUDIO
+    0x05  FILE
+    0xFF  UNKNOWN
+
+content_type is a display hint only. It does not affect cryptography.
+The envelope carries no filename or MIME type.
+
+
+6. Security Notes
+=================
+
+- The header is not authenticated (no AAD). uuid, timestamp and
+  content_type can be altered undetected. The two public keys are bound
+  implicitly: changing either one changes the key, so the tag fails.
+- A valid tag proves the envelope was made by the holder of the sender's
+  or the recipient's private key.
+- Every envelope between the same two identities uses the same key, so
+  IVs MUST be random and never reused.
+- No forward secrecy, no replay protection. Senders, recipients,
+  timestamps and sizes are visible to anyone holding the envelope.

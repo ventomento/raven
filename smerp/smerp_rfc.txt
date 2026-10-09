@@ -1,0 +1,100 @@
+SMERP: Secure Messaging Envelope Relay Protocol, Version 1
+
+1. Overview
+===========
+
+SMERP moves SMEP envelopes (smep/smep_rfc.txt) between clients and relay
+servers over HTTP(S). A client uploads an envelope to its relays. The
+relays forward it through the federation of relays they know. The
+recipient downloads it from whichever relays it uses. Delivery is
+best-effort, and no relay is trusted or authoritative.
+
+
+2. Relay Types
+==============
+
+archive
+    Stores every accepted envelope indefinitely.
+
+relay
+    Makes no retention promise. It may delete an envelope at any time,
+    including once it has been served by GET.
+
+The client configures the type for each relay. The protocol does not
+advertise it.
+
+
+3. Upload
+=========
+
+    POST /envelopes
+    Content-Type: application/octet-stream
+    Body: one SMEP envelope
+
+No authentication. Responses:
+
+    200   accepted, including an already-held uuid
+    400   wrong Content-Type, or the body is not a valid envelope
+    429   throttled, see section 6
+
+The client posts to all of its relays. The send succeeds if at least
+one relay returns 200.
+
+
+4. Download
+===========
+
+    GET /envelopes?pkh=<hex public key>&cursor=<cursor>
+
+Authenticated as specified in smerp/src/auth/auth_rfc.txt.
+
+The relay returns the first envelope after cursor whose sender or
+recipient is pkh, so clients also receive their own sent envelopes.
+It returns at most one envelope per request.
+
+    200   body: the envelope
+          x-smerp-cursor: <cursor after this envelope>
+    204   no envelope after cursor
+    401   authentication failed
+    429   throttled, see section 6
+
+The cursor is a non-negative integer defined by the relay. It starts at
+0, and each 200 MUST return a cursor greater than the one requested,
+even after the relay deletes envelopes. The client stores a cursor per
+relay. It advances the cursor only once it has processed the envelope,
+and repeats the request until it gets 204.
+
+A cursor that is missing, not an integer, or not greater than the
+requested one is a relay failure.
+
+Relays that serve browser clients MUST allow the x-smerp-timestamp and
+x-smerp-signature request headers and expose x-smerp-cursor via CORS.
+
+
+5. Federation
+=============
+
+Both relay types SHOULD forward each newly accepted envelope to the peer
+relays they know, using POST /envelopes. An envelope whose uuid the
+relay already holds is not forwarded again, which ends loops. Peer
+selection is local policy.
+
+Envelopes MUST be stored and forwarded byte-identical.
+
+
+6. Client Rules
+===============
+
+- Deduplicate by uuid: the same envelope arrives from many relays.
+- Drop an envelope that fails to parse or decrypt, and advance the
+  cursor past it.
+- On 429, wait for Retry-After (seconds or HTTP date) before contacting
+  that relay again.
+
+
+7. Security Notes
+=================
+
+- Relays see sender, recipient, timestamp, size and timing.
+- Uploads are unauthenticated, so anyone can post to any recipient.
+- Relays can drop, delay or withhold envelopes. Use several relays.

@@ -14,13 +14,8 @@ test("authentication headers are stable for same timestamp", async () => {
 
     const auth = new Authenticator({
         identity,
-        relay
-    });
-
-    auth.timestamp = () => ({
-        timestamp: "1750201234",
-        timestampEncoded: new TextEncoder()
-            .encode("1750201234")
+        relay,
+        clock: { now: () => 1750201234567 }
     });
 
     const headers1 = await auth.headers();
@@ -94,8 +89,26 @@ test("headers contain required authentication fields", async () => {
         "string"
     );
 
-    assert.ok(
-        headers["x-smerp-signature"] instanceof Uint8Array
+    // Lowercase hex of the 32-byte HMAC-SHA256 output (auth_rfc.txt).
+    assert.match(
+        headers["x-smerp-signature"],
+        /^[0-9a-f]{64}$/
+    );
+
+});
+
+test("headers throw when the relay has no relayPkh", async () => {
+
+    const identity = await PrivateIdentity.generate();
+
+    const auth = new Authenticator({
+        identity,
+        relay: {}
+    });
+
+    await assert.rejects(
+        auth.headers(),
+        /no relayPkh/
     );
 
 });

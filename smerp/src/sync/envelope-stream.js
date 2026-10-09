@@ -43,7 +43,7 @@ export class EnvelopeStream {
         transporter = TransportDefault,
         logger,
         clock = RealClock,
-        authenticator = new Authenticator({ identity, relay }),
+        authenticator = new Authenticator({ identity, relay, clock }),
     }) {
 
         insist(identity, PrivateIdentity);

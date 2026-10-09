@@ -24,17 +24,17 @@ export async function symHmacKey({
 
 }
 
-function getTimestamp() {
-    const timestamp = Math.floor(Date.now() / 1000).toString();
+function getTimestamp(nowMs) {
+    const timestamp = Math.floor(nowMs / 1000).toString();
 
     const timestampEncoded = encodeUtf8(timestamp);
 
     return {timestamp, timestampEncoded};
 }
 
-export async function signedHeaders(hmacKey){
+export async function signedHeaders(hmacKey, nowMs = Date.now()){
         
-    const {timestamp, timestampEncoded} = getTimestamp();
+    const {timestamp, timestampEncoded} = getTimestamp(nowMs);
     
     const signature = await hmacSha256(
         hmacKey,

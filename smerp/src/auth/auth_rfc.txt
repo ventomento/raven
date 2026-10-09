@@ -13,7 +13,11 @@ The protocol is stateless and consists of a single HTTP request.
 
 Usage:
 
-    GET /envelopes
+    GET /envelopes?pkh=<client_pkh>&cursor=<cursor>
+
+Only GET /envelopes is authenticated. POST /envelopes carries an opaque
+encrypted envelope and requires no authentication.
+
 
 2. Terminology
 ==============
@@ -25,7 +29,9 @@ Relay
     Entity verifying authentication.
 
 PKH
-    Hex-encoded X25519 public key.
+    Hex-encoded 32-byte X25519 public key (64 hex characters).
+    Implementations MUST accept an optional "0x" prefix and hex digits
+    in either case.
 
 Timestamp
     Unix timestamp in seconds encoded as a decimal UTF-8 string.
@@ -45,6 +51,9 @@ Shared secret:
             public_key
         )
 
+An all-zero shared_secret (produced by a low-order public key) MUST be
+rejected.
+
 Proof key:
 
     proof_key =
@@ -60,6 +69,10 @@ Signature:
 
 All cryptographic operations use raw bytes.
 Hex encoding is only used for transport.
+
+The proof key is derived without domain separation: it is the same
+SHA256(shared_secret) that SMEP uses as the AES-GCM key for envelopes
+between the same two keypairs.
 
 
 4. Timestamp Rules
@@ -80,6 +93,13 @@ Example:
 
 The relay defines the accepted clock-skew window.
 Requests outside this window MUST be rejected.
+
+The relay signs the x-smerp-timestamp header value exactly as received.
+It need not enforce the formatting rules above: a timestamp formatted
+differently from what the client signed fails verification.
+
+The reference relay accepts timestamps within 300 seconds of its clock,
+in either direction.
 
 
 5. Client Authentication
@@ -107,7 +127,17 @@ The client computes:
 
 The client sends:
 
-    GET /envelopes
+    GET /envelopes?pkh=<client_pkh>&cursor=<cursor>
+
+
+Query parameters:
+
+    pkh
+        The client's own public key hex. It identifies both the
+        mailbox being read and the key the relay verifies against.
+
+    cursor
+        Paging position. Not part of authentication.
 
 
 Headers:
@@ -126,14 +156,21 @@ Requirements:
         the HMAC-SHA256 output.
 
 
+The proof key depends only on the two keypairs, so the client MAY derive
+it once per relay and reuse it.
+
+
 6. Relay Verification
 =====================
 
 The relay extracts:
 
-    pkh (client public key hex)
-    timestamp
-    signature
+    pkh        (client public key hex, from the pkh query parameter)
+    timestamp  (x-smerp-timestamp header)
+    signature  (x-smerp-signature header)
+
+
+If any of these is missing, authentication fails.
 
 
 The relay MUST:
@@ -141,6 +178,7 @@ The relay MUST:
 
 1. Validate the timestamp.
 
+   The timestamp MUST parse as an integer.
    Requests outside the accepted clock-skew window MUST be rejected.
 
 
@@ -180,6 +218,14 @@ If the signatures match, authentication succeeds.
 Otherwise authentication fails.
 
 
+On failure the relay responds:
+
+    401 Unauthorized
+    x-smerp-unauthorized: <reason>
+
+The client treats any 401 as an authentication failure for that relay.
+
+
 7. Security Properties
 ======================
 
@@ -195,6 +241,10 @@ Does not provide:
 - Single-use authentication proofs.
 - Protection against replay within the accepted timestamp window.
 - Forward secrecy for authentication requests.
+- Request binding. The signature covers only the timestamp, not the
+  method, path, pkh or cursor. A captured request can be replayed within
+  the window with any cursor. The pkh is bound only implicitly: the proof
+  key is specific to the client-relay key pair.
 
 
 TLS SHOULD be used for transport protection.

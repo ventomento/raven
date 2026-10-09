@@ -263,6 +263,7 @@ export class SyncEngine {
             authenticator = new Authenticator({
                 identity: this.identity,
                 relay: { relayPkh: relay.relayPkh },
+                clock: this.clock,
             });
 
             this.authenticators.set(relay.relayPkh, authenticator);
