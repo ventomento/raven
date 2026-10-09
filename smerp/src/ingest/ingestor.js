@@ -2,6 +2,7 @@
 import { decrypt, PrivateIdentity } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
 import { EventBus, EventTypes } from "../event/event-bus.js";
+import { ConcurrencyLimiter } from "../sync/concurrency-limiter.js";
 
 // =====================================================
 // Ingestor
@@ -26,6 +27,11 @@ export class Ingestor {
     this.localPublicHex = this.identity.publicKeyHex;
     this.eventBus = eventBus;
     this.logger = logger;
+    // Serializes dedup check + persist. Relays are synced in parallel and
+    // every envelope is on every relay, so the same envelope can be
+    // ingested twice at once; without this both copies pass the dedup
+    // check and the envelope is announced and unread-counted twice.
+    this.writeLock = new ConcurrencyLimiter(1);
   }
 
   isIdentity(publicHex){
@@ -47,22 +53,31 @@ export class Ingestor {
       envelopeBytes
     });
 
-    if ( await this.checkDuplicate(envelope.uuid) ) {
-      return false;
-    }
-
     const enrichedEnvelope = 
       await this.buildEnrichedEnvelope({
           envelope,
       })
 
-    await this.envelopePersist(enrichedEnvelope);
+    const stored = await this.writeLock.run(async () => {
+
+      if ( await this.checkDuplicate(envelope.uuid) ) {
+        return false;
+      }
+
+      await this.envelopePersist(enrichedEnvelope);
+
+      return true;
+    });
+
+    if (!stored) {
+      return false;
+    }
 
     this.eventBus.publish({
-      type: EventTypes.NEW_ENVELOPE,
-      uuid: enrichedEnvelope.uuid,
-      publicKeyHex: enrichedEnvelope.publicKeyHex
-      }); 
+      type: EventTypes.ENVELOPE,
+      envelope: enrichedEnvelope,
+    });
+
     return true;
   }
 
@@ -150,14 +165,11 @@ export class Ingestor {
       return false;
     }
 
-    if (!existingConversation) {
-
-      this.eventBus.publish({
-        type: EventTypes.NEW_CONVERSATION,
-        publicKeyHex 
-      })
-      
-    }
+    this.eventBus.publish({
+      type: EventTypes.CONVERSATION,
+      conversation,
+      created: !existingConversation,
+    });
 
     return conversation;
   } 

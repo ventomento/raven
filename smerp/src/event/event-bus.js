@@ -9,9 +9,12 @@
 //
 
 export const EventTypes = Object.freeze({
-    NEW_CONVERSATION: "new.conversation",
-    NEW_ENVELOPE: "new.envelope",
-    RESULTS_DISPATCH: "results.dispatch"
+    ENVELOPE: "envelope",          // { envelope }                   envelope stored
+    CONVERSATION: "conversation",  // { conversation, created }      conversation stored
+    RELAY: "relay",                // { relay, deleted }             relay stored or deleted
+    SYNC: "sync",                  // { phase: "start" | "end" }
+    STATUS: "status",              // { status }                     client lifecycle changed
+    ERROR: "error",                // { error, relayUrl? }           background failure
 })
 
 export function isValidEventType(eventType) {

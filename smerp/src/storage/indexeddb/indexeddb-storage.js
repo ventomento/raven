@@ -145,9 +145,59 @@ export class IndexedDbStorage
     return record.relayUrl;
   }
 
+  async relaysDelete({ relayUrl }) {
+
+    const existing =
+      await this.#getByKey(
+        STORES.RELAYS,
+        relayUrl
+      );
+
+    if (existing.length === 0) {
+      return 0;
+    }
+
+    await this.#delete(
+      STORES.RELAYS,
+      relayUrl
+    );
+
+    return 1;
+  }
+
   //
   // helpers
   //
+
+  async #delete(
+    storeName,
+    key
+  ) {
+
+    return new Promise(
+      (resolve, reject) => {
+
+        const tx =
+          this.db.transaction(
+            storeName,
+            "readwrite"
+          );
+
+        const request =
+          tx.objectStore(
+            storeName
+          ).delete(key);
+
+        request.onsuccess =
+          () => resolve();
+
+        request.onerror =
+          () => reject(
+            request.error
+          );
+      }
+    );
+  }
 
   async #put(
     storeName,

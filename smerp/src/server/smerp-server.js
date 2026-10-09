@@ -18,6 +18,9 @@ const AUTH_CONFIG = {
 
 export class SmerpServer {
 
+  // Fixed relay identity. Clients need it as relayPkh to authenticate.
+  static PUBLIC_KEY_HEX = AUTH_CONFIG.publicKeyHex;
+
   constructor({
     storage = new StorageServer(),
   } = {}) {

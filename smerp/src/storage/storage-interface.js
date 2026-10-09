@@ -63,6 +63,18 @@
  * Put operations return the primary key of the stored record.
  *
  *
+ * Delete Operations
+ * -----------------
+ *
+ * Delete operations take the same options as the corresponding Get
+ * operation, restricted to the primary key, and remove the matching
+ * record.
+ *
+ * Deleting a record that does not exist is not an error.
+ *
+ * Delete operations return the number of records removed.
+ *
+ *
  * Query Semantics
  * ---------------
  *
@@ -279,6 +291,22 @@ export class StorageInterface {
   async relaysPut(record) {
     throw new Error(
       "relaysPut() not implemented"
+    );
+  }
+
+  /**
+   * Delete a relay record.
+   *
+   * Supported Options
+   * -----------------
+   *
+   * {
+   *   relayUrl
+   * }
+   */
+  async relaysDelete(options) {
+    throw new Error(
+      "relaysDelete() not implemented"
     );
   }
 

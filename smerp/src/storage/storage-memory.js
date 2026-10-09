@@ -1,6 +1,6 @@
 // src/storage/storage-memory.js
 
-//  Mock module for testing. Do not use in production.
+// In-memory storage. Data is lost when the process exits.
 
 import {
   StorageInterface,
@@ -31,12 +31,14 @@ export class StorageMemory
   // ENVELOPES
   // =========================================================
 
-  async envelopesPut(envelope) {
+  async envelopesPut(record) {
 
     this.envelopes.set(
-      envelope.uuid,
-      envelope
+      record.uuid,
+      structuredClone(record)
     );
+
+    return record.uuid;
   }
 
   async envelopesGet(options = {}) {
@@ -68,23 +70,23 @@ export class StorageMemory
         );
     }
 
-    if (options.before) {
+    if (options.beforeTimestamp !== undefined) {
 
       results =
         results.filter(
           x =>
             x.timestamp <
-            options.before
+            options.beforeTimestamp
         );
     }
 
     // =====================================================
-    // SORT
+    // SORT (newest first)
     // =====================================================
 
     results.sort(
       (a, b) =>
-        b.createdAt - a.createdAt
+        b.timestamp - a.timestamp
     );
 
     // =====================================================
@@ -100,7 +102,7 @@ export class StorageMemory
         );
     }
 
-    return results;
+    return structuredClone(results);
   }
 
   // =========================================================
@@ -111,10 +113,10 @@ export class StorageMemory
 
     this.conversations.set(
       record.publicKeyHex,
-      record
+      structuredClone(record)
     );
     
-    return record;
+    return record.publicKeyHex;
   }
 
   async conversationsGet(options = {}) {
@@ -134,34 +136,21 @@ export class StorageMemory
         );
     }
 
-    results.sort((a, b) => {
-      if (b.lastMessageAt > a.lastMessageAt) return 1;
-      if (b.lastMessageAt < a.lastMessageAt) return -1;
-      return 0;
-    });
-
-    if (options.limit) {
-
-      results =
-        results.slice(
-          0,
-          options.limit
-        );
-    }
-
-    return results;
+    return structuredClone(results);
   }
 
   // =========================================================
-  // RELAY
+  // RELAYS
   // =========================================================
 
   async relaysPut(record) {
 
     this.relays.set(
       record.relayUrl,
-      record
+      structuredClone(record)
     );
+
+    return record.relayUrl;
   }
 
   async relaysGet(options = {}) {
@@ -181,7 +170,12 @@ export class StorageMemory
         );
     }
 
-    return results;
+    return structuredClone(results);
+  }
+
+  async relaysDelete({ relayUrl }) {
+
+    return this.relays.delete(relayUrl) ? 1 : 0;
   }
 
 }

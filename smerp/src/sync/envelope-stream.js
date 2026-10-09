@@ -21,7 +21,7 @@ export class EnvelopeStream {
     constructor({
         identity,
         relay,
-        transporter = new TransportDefault(),
+        transporter = TransportDefault,
         logger,
         clock = {
             now: () => Date.now(),

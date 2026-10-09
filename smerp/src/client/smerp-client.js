@@ -7,6 +7,9 @@ import {
 } from "../../../smep/src/index.js";
 
 import { insist } from "../../../smep/src/util/util.js";
+import { Serializer } from "../../../smep/src/envelope/serializer.js";
+import { ContentTypes } from "../../../smep/src/envelope/content-types.js";
+import { bytesToHex } from "../../../smep/src/encoding/hex.js";
 import { StorageMemory } from "../storage/storage-memory.js";
 import { RequestBuilder } from "../request/request-builder.js";
 import { TransportDefault } from "../transport/transport-default.js";
@@ -14,93 +17,80 @@ import { SyncEngine } from "../sync/sync-engine.js";
 import { LightLog } from "../log/light-log.js";
 import { Ingestor } from "../ingest/ingestor.js";
 import { EventBus, EventTypes } from "../event/event-bus.js";
+import { NotStartedError, DispatchError } from "./errors.js";
 
+export const ClientStatus = Object.freeze({
+  STOPPED: "stopped",
+  STARTING: "starting",
+  RUNNING: "running",
+  STOPPING: "stopping",
+});
+
+/**
+ * Reference smerp client.
+ *
+ * Headless: holds no view state. A UI sends with send(), reads local
+ * data through the <resource>Get/Put/Delete methods and reacts to
+ * events subscribed with on().
+ *
+ * Local storage access follows one convention for every resource:
+ *
+ *   <resource>Get(options)    query, returns an array (possibly empty)
+ *   <resource>Put(record)     insert or replace by primary key
+ *   <resource>Delete(options) remove by primary key, returns count
+ */
 export class SmerpClient {
 
   constructor({
     identity,
     transporter = TransportDefault,
     storage = new StorageMemory(),
-    eventBus = new EventBus(),    
-    debug = true,
-    logger = new LightLog({debug})
+    logger = new LightLog(),
+    syncIntervalMs = 60 * 1000,
   }) {
 
     insist(identity, PrivateIdentity);
 
-    this.debug = debug;
     this.identity = identity;
     this.transporter = transporter;
     this.storage = storage;
-    this.eventBus = eventBus;
     this.logger = logger;
-    this.started = false;
+    this.syncIntervalMs = syncIntervalMs;
+
+    this.eventBus = new EventBus();
+    this.status = ClientStatus.STOPPED;
+    this.publicKeyHex = null;
+    this.ingestor = null;
+    this.syncEngine = null;
     this.syncPromise = null;
-    this.localPublicHex = null;
+    this.syncAgain = false;
+    this.syncIntervalId = null;
   }
-  
+
   // =====================================================
-  /* Public API */
+  // Lifecycle
   // =====================================================
-
-  async sendData(
-    publicKeyHex, 
-    data
-  ) {
-
-    if (!this.started){
-      throw new Error("smerp client not started! Send Aborted.");
-    }
-
-    const envelopeBytes = await this.encryptData(publicKeyHex, data);
-
-    if ((await this.dispatch(envelopeBytes)).length > 0) {
-      this.sync();
-    } 
-    else {
-      throw new Error("Dispatch upload failed to all relays - Add working relays ! ")
-    }
-  }
-
-  async conversationsGet(options) {
-    return await this.storage.conversationsGet(options);
-  }
-
-  async envelopesGet(options){
-    return await this.storage.envelopesGet(options)
-  }
 
   async start() {
-    if (this.started) {
+
+    if (this.status !== ClientStatus.STOPPED) {
       return;
     }
-    
-    this.started = true;
 
-    await this.storage.init();
+    this.#setStatus(ClientStatus.STARTING);
 
     try {
-      // -------------------------------------------------
-      // Bootstrap defaults
-      // -------------------------------------------------
-      if (this.debug) {
-        await this.relaysPut({
-          relayUrl: "http://localhost:8000",
-          relayType: "archive",
-          relayPkh: "0xeb03b29ead5416dae89af429e77f649c3e9f8628cb032a12aa17a03e1d6bf249"
-        });
-      }
-      // -------------------------------------------------
-      // Init async dependencies
-      // -------------------------------------------------
-      this.localPublicHex =
+
+      await this.storage.init();
+
+      this.publicKeyHex =
+        this.identity.publicKeyHex ??
         await this.identity.exportPublicHex();
 
       this.ingestor =
         new Ingestor({
           storage: this.storage,
           identity: this.identity,
-          localPublicHex: this.localPublicHex,
           eventBus: this.eventBus,
           logger: this.logger,
         });
@@ -112,196 +102,392 @@ export class SmerpClient {
           storage: this.storage,
           ingestor: this.ingestor,
           logger: this.logger,
-          pkh: this.localPublicHex,
+          eventBus: this.eventBus,
+          pkh: this.publicKeyHex,
         });
-      // -------------------------------------------------
-      // Subscribe BEFORE sync
-      // -------------------------------------------------
-      this.subscribeEvents();
-      // -------------------------------------------------
-      // Initial sync
-      // -------------------------------------------------
-      void this.sync();
-      // -------------------------------------------------
-      // Periodic sync
-      // -------------------------------------------------
-      this.syncIntervalId = setInterval(
-        () => void this.sync(),
-        60 * 1000
-      );
     }
     catch (error) {
-      await this.stop();
+      await this.storage.close();
+      this.#setStatus(ClientStatus.STOPPED);
       throw error;
     }
+
+    this.#setStatus(ClientStatus.RUNNING);
+
+    void this.sync();
+
+    this.syncIntervalId = setInterval(
+      () => void this.sync(),
+      this.syncIntervalMs
+    );
   }
 
   async stop() {
-    if (!this.started) {
+
+    if (this.status !== ClientStatus.RUNNING) {
       return;
     }
 
-    this.started = false;
+    this.#setStatus(ClientStatus.STOPPING);
+
+    clearInterval(this.syncIntervalId);
+    this.syncIntervalId = null;
+
+    await this.syncPromise;
     await this.storage.close();
 
-    // -------------------------------------------------
-    // Stop periodic sync
-    // -------------------------------------------------
-    if (this.syncIntervalId) {
-      clearInterval(this.syncIntervalId);
-      this.syncIntervalId = null;
-    }
-
-    this.unsubscribeEvents();
-    
-    // -------------------------------------------------
-    // Reset runtime state
-    // -------------------------------------------------
-    this.syncPromise = null;
     this.ingestor = null;
     this.syncEngine = null;
 
+    this.#setStatus(ClientStatus.STOPPED);
   }
 
-  onEnvelope = (event) => {
-    // overwrite this for the UI to handle new envelope.
-    this.logger.info("New envelope, but onNewEnvelope not overwritten by UI client.");
-  }
-  
-  onConversation = (event) => {
-    // overwrite this in the UI client to handle new conversation.
-    this.logger.info("New conversation, but onNewConversation not overwritten by UI client.");
-  }
-
-  onDispatch = (event) => {
-    //overwrite this for UI handling
-    this.logger.info("Dispatch Results, but onDispatch not overwritten by UI client.");
-  }
-
-  async relaysPut(relay){
-
-    insist(relay.relayUrl, "string");
-    insist(relay.relayType, "string");
-
-    return await this.storage.relaysPut(relay);
-  }
-
-  async relaysGet(options={}){
-    return await this.storage.relaysGet(options);
-  }
-
-  async relaysDelete(relayUrl){
-    // todo: implement;
-    this.logger.info("relaysDelete: Not implemented!");
-  }
-
-  // public api stops. =====================================================
-  // henceforth only internal functions.
-
-  subscribeEvents(){
-    this.unsubscribeConversation =
-      this.eventBus.subscribe(
-        EventTypes.NEW_CONVERSATION,
-        (event) => this.onConversation(event)
-      );
-
-    this.unsubscribeEnvelope =
-      this.eventBus.subscribe(
-        EventTypes.NEW_ENVELOPE,
-        (event) => this.onEnvelope(event)
-      );
-
-    this.unsubscribeDispatch =
-      this.eventBus.subscribe(
-        EventTypes.RESULTS_DISPATCH,
-        (event) => this.onDispatch(event)
-      );
-  }
-
-  unsubscribeEvents(){
-    this.unsubscribeConversation?.();
-    this.unsubscribeEnvelope?.();
-    this.unsubscribeDispatch?.();
-  }
-
+  /**
+   * Sync all enabled relays now. A call made while a sync is running
+   * schedules one more run after it, so nothing uploaded in between is
+   * missed; the returned promise covers that run too.
+   * Never rejects: failures are published as "error" events.
+   */
   sync() {
 
-    if (!this.started || this.syncPromise) {
-      return;
+    this.#assertRunning();
+
+    if (this.syncPromise) {
+      this.syncAgain = true;
+      return this.syncPromise;
     }
 
-    this.syncPromise = 
-      this.performSync()
-      .catch((error) => {
-        this.logger.error("Sync failed", error);
-      })
+    this.syncPromise =
+      this.#syncLoop()
       .finally(() => {
         this.syncPromise = null;
       });
+
+    return this.syncPromise;
   }
 
-  async performSync() {
-    const relays = await this.storage.relaysGet();
-    await this.syncEngine.syncRelays(relays);
+  // =====================================================
+  // Events
+  // =====================================================
+
+  /**
+   * Subscribe to a client event. Returns an unsubscribe function.
+   * See EventTypes for event names and payloads.
+   */
+  on(eventType, callback) {
+    return this.eventBus.subscribe(eventType, callback);
   }
 
-  /* return: encrypted envelope bytes */
-  async encryptData(publicKeyHex, data) {
+  // =====================================================
+  // Envelopes
+  // =====================================================
+
+  /**
+   * options: {} | { uuid } | { publicKeyHex, beforeTimestamp?, limit? }
+   * Sorted newest first.
+   */
+  async envelopesGet(options = {}) {
+
+    this.#assertRunning();
+
+    const envelopes = await this.storage.envelopesGet(options);
+
+    return envelopes.sort(
+      (a, b) => b.timestamp - a.timestamp
+    );
+  }
+
+  // =====================================================
+  // Send
+  // =====================================================
+
+  /**
+   * Encrypt plaintext for a recipient and upload it to every relay.
+   *
+   * plaintext: string | Uint8Array (a Node Buffer is a Uint8Array).
+   * contentType: defaults to TEXT_UTF8 for strings, UNKNOWN for bytes.
+   *
+   * Resolves once at least one relay accepted it, with the envelope
+   * uuid and per-relay results. Throws DispatchError if no relay
+   * accepted it.
+   *
+   * Nothing is stored here. Like every envelope, it is stored when a
+   * sync fetches it back from a relay; send() starts that sync. Watch
+   * for the "envelope" event with this uuid.
+   */
+  async send(
+    recipientPublicKeyHex,
+    plaintext,
+    {
+      contentType = defaultContentType(plaintext),
+    } = {}
+  ) {
+
+    this.#assertRunning();
+
+    insist(recipientPublicKeyHex, "string");
+
+    if (!(
+      typeof plaintext === "string" ||
+      plaintext instanceof Uint8Array
+    )) {
+      throw new TypeError(
+        "plaintext must be string or Uint8Array"
+      );
+    }
+
     const recipient =
       await PublicIdentity.fromPublicHex(
-        publicKeyHex
+        recipientPublicKeyHex
       );
 
-    return await encrypt({
+    const envelopeBytes =
+      await encrypt({
         sender: this.identity,
         recipient,
-        plaintext: data,
+        plaintext,
+        contentType,
       });
+
+    const { delivered, failed } =
+      await this.#dispatch(envelopeBytes);
+
+    if (delivered.length === 0) {
+      throw new DispatchError(failed);
+    }
+
+    void this.sync();
+
+    const uuid = bytesToHex(
+      Serializer.unpack(envelopeBytes).uuid
+    );
+
+    return { uuid, delivered, failed };
   }
 
-  async dispatch(envelopeBytes){
+  // =====================================================
+  // Conversations
+  // =====================================================
+
+  /**
+   * options: {} | { publicKeyHex }
+   * Sorted by lastMessageAt, newest first.
+   */
+  async conversationsGet(options = {}) {
+
+    this.#assertRunning();
+
+    const conversations = await this.storage.conversationsGet(options);
+
+    return conversations.sort(
+      (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0)
+    );
+  }
+
+  /**
+   * Insert or replace a conversation, e.g. to mark it read:
+   *
+   *   const [c] = await client.conversationsGet({ publicKeyHex });
+   *   await client.conversationsPut({ ...c, unreadCount: 0 });
+   *
+   * Last write wins: an envelope ingested between the get and the put
+   * has its unread increment overwritten.
+   */
+  async conversationsPut(conversation) {
+
+    this.#assertRunning();
+
+    insist(conversation.publicKeyHex, "string");
+
+    const [existing] =
+      await this.storage.conversationsGet({
+        publicKeyHex: conversation.publicKeyHex,
+      });
+
+    const key = await this.storage.conversationsPut(conversation);
+
+    this.eventBus.publish({
+      type: EventTypes.CONVERSATION,
+      conversation,
+      created: !existing,
+    });
+
+    return key;
+  }
+
+  // =====================================================
+  // Relays
+  // =====================================================
+
+  /**
+   * options: {} | { relayUrl }
+   */
+  async relaysGet(options = {}) {
+
+    this.#assertRunning();
+
+    return this.storage.relaysGet(options);
+  }
+
+  /**
+   * Insert or replace a relay, keyed by relayUrl.
+   * Replacing drops sync state (cursor, failure counts) unless the
+   * record passed in carries it, as one from relaysGet does.
+   */
+  async relaysPut(relay) {
+
+    this.#assertRunning();
+
+    insist(relay.relayUrl, "string");
+    insist(relay.relayType, "string");
+    insist(relay.relayPkh, "string");
+
+    const key = await this.storage.relaysPut(relay);
+
+    this.eventBus.publish({
+      type: EventTypes.RELAY,
+      relay,
+      deleted: false,
+    });
+
+    void this.sync();
+
+    return key;
+  }
+
+  /**
+   * options: { relayUrl }
+   * Returns the number of relays removed (0 or 1).
+   */
+  async relaysDelete({ relayUrl }) {
+
+    this.#assertRunning();
+
+    insist(relayUrl, "string");
+
+    const [relay] = await this.storage.relaysGet({ relayUrl });
+
+    if (!relay) {
+      return 0;
+    }
+
+    const count = await this.storage.relaysDelete({ relayUrl });
+
+    this.eventBus.publish({
+      type: EventTypes.RELAY,
+      relay,
+      deleted: true,
+    });
+
+    return count;
+  }
+
+  // =====================================================
+  // Internal
+  // =====================================================
+
+  #assertRunning() {
+    if (this.status !== ClientStatus.RUNNING) {
+      throw new NotStartedError();
+    }
+  }
+
+  #setStatus(status) {
+
+    this.status = status;
+
+    this.eventBus.publish({
+      type: EventTypes.STATUS,
+      status,
+    });
+  }
+
+  async #syncLoop() {
+
+    do {
+      this.syncAgain = false;
+      await this.#performSync();
+    } while (
+      this.syncAgain &&
+      this.status === ClientStatus.RUNNING
+    );
+  }
+
+  async #performSync() {
+
+    this.eventBus.publish({
+      type: EventTypes.SYNC,
+      phase: "start",
+    });
+
+    try {
+      const relays = await this.storage.relaysGet();
+      await this.syncEngine.syncRelays(relays);
+    }
+    catch (error) {
+      this.logger.error("Sync failed", error);
+
+      this.eventBus.publish({
+        type: EventTypes.ERROR,
+        error,
+      });
+    }
+    finally {
+      this.eventBus.publish({
+        type: EventTypes.SYNC,
+        phase: "end",
+      });
+    }
+  }
+
+  async #dispatch(envelopeBytes) {
 
     const relays = await this.storage.relaysGet();
 
-    const promises = relays.map( (relay) => {
-      return this.dispatchToRelay(relay, envelopeBytes, this.transporter);
-    })
+    const results = await Promise.allSettled(
+      relays.map(
+        relay => this.#dispatchToRelay(relay, envelopeBytes)
+      )
+    );
 
-    const results = await Promise.allSettled(promises);
+    const delivered = [];
+    const failed = [];
 
-    const successful = results
-      .filter(r => r.status === "fulfilled")
-      .map(r => r.value);
+    results.forEach((result, i) => {
 
-    const failed = results
-      .filter(r => r.status === "rejected")
-      .map(r => r.reason);
+      const relayUrl = relays[i].relayUrl;
 
-    this.logger.info("Dispatch: Uploaded to relays: ", {successful});
-    this.logger.info("Dispatch: Failed upload to relays: ", {failed});
-
-    this.eventBus.publish({
-      type: EventTypes.RESULTS_DISPATCH,
-      relayUrls: successful
+      if (result.status === "fulfilled") {
+        delivered.push(relayUrl);
+      }
+      else {
+        failed.push({ relayUrl, error: result.reason });
+      }
     });
 
-    return successful;
+    this.logger.info("Dispatch:", { delivered, failed });
+
+    return { delivered, failed };
   }
 
-  async dispatchToRelay(relay, envelopeBytes, transporter) {
+  async #dispatchToRelay(relay, envelopeBytes) {
 
-    const response = 
-      await transporter.transport({
+    const response =
+      await this.transporter.transport({
         url: RequestBuilder.urlEnvelopesPost(relay),
         options: RequestBuilder.optionsEnvelopesPost(envelopeBytes),
-        logger: this.logger
-      })
+        logger: this.logger,
+      });
 
     if (response.status !== 200) {
       throw new Error(`Relay dispatch failed: ${response.status}`);
     }
-
-    return relay.relayUrl;
   }
-  
+
+}
+
+function defaultContentType(plaintext) {
+  return typeof plaintext === "string"
+    ? ContentTypes.TEXT_UTF8
+    : ContentTypes.UNKNOWN;
 }

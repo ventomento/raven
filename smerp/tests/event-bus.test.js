@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { EventBus, EventTypes, isValidEventType } from "../src/event/event-bus.js";
 
 test("isValidEventType: should validate known event types", () => {
-  assert.equal(isValidEventType(EventTypes.NEW_CONVERSATION), true);
+  assert.equal(isValidEventType(EventTypes.CONVERSATION), true);
   assert.equal(isValidEventType("invalid.event"), false);
   assert.equal(isValidEventType(123), false);
 });
@@ -14,19 +14,19 @@ test("EventBus: subscribe should register callback and receive event", async () 
 
   let received = null;
 
-  bus.subscribe(EventTypes.NEW_CONVERSATION, (event) => {
+  bus.subscribe(EventTypes.CONVERSATION, (event) => {
     received = event;
   });
 
   bus.publish({
-    type: EventTypes.NEW_CONVERSATION,
+    type: EventTypes.CONVERSATION,
     payload: "hello",
   });
 
   await new Promise((r) => setTimeout(r, 0));
 
   assert.ok(received);
-  assert.equal(received.type, EventTypes.NEW_CONVERSATION);
+  assert.equal(received.type, EventTypes.CONVERSATION);
   assert.equal(received.payload, "hello");
   assert.ok(typeof received.timestamp === "number");
 });
@@ -44,13 +44,13 @@ test("EventBus: unsubscribe should stop receiving events", async () => {
 
   let count = 0;
 
-  const unsubscribe = bus.subscribe(EventTypes.NEW_ENVELOPE, () => {
+  const unsubscribe = bus.subscribe(EventTypes.ENVELOPE, () => {
     count++;
   });
 
-  bus.publish({ type: EventTypes.NEW_ENVELOPE });
+  bus.publish({ type: EventTypes.ENVELOPE });
   unsubscribe();
-  bus.publish({ type: EventTypes.NEW_ENVELOPE });
+  bus.publish({ type: EventTypes.ENVELOPE });
 
   await new Promise((r) => setTimeout(r, 0));
 
@@ -63,15 +63,15 @@ test("EventBus: multiple subscribers should all be called", async () => {
   let a = 0;
   let b = 0;
 
-  bus.subscribe(EventTypes.RESULTS_DISPATCH, () => {
+  bus.subscribe(EventTypes.RELAY, () => {
     a++;
   });
 
-  bus.subscribe(EventTypes.RESULTS_DISPATCH, () => {
+  bus.subscribe(EventTypes.RELAY, () => {
     b++;
   });
 
-  bus.publish({ type: EventTypes.RESULTS_DISPATCH });
+  bus.publish({ type: EventTypes.RELAY });
 
   await new Promise((r) => setTimeout(r, 0));
 
@@ -84,12 +84,12 @@ test("EventBus: async handler should not break publish flow", async () => {
 
   let done = false;
 
-  bus.subscribe(EventTypes.NEW_CONVERSATION, async () => {
+  bus.subscribe(EventTypes.CONVERSATION, async () => {
     await new Promise((r) => setTimeout(r, 5));
     done = true;
   });
 
-  bus.publish({ type: EventTypes.NEW_CONVERSATION });
+  bus.publish({ type: EventTypes.CONVERSATION });
 
   await new Promise((r) => setTimeout(r, 20));
 
@@ -101,15 +101,15 @@ test("EventBus: sync handler errors should not crash bus", async () => {
 
   let secondCalled = false;
 
-  bus.subscribe(EventTypes.NEW_ENVELOPE, () => {
+  bus.subscribe(EventTypes.ENVELOPE, () => {
     throw new Error("fail");
   });
 
-  bus.subscribe(EventTypes.NEW_ENVELOPE, () => {
+  bus.subscribe(EventTypes.ENVELOPE, () => {
     secondCalled = true;
   });
 
-  bus.publish({ type: EventTypes.NEW_ENVELOPE });
+  bus.publish({ type: EventTypes.ENVELOPE });
 
   await new Promise((r) => setTimeout(r, 0));
 
@@ -121,11 +121,11 @@ test("EventBus: event should be enriched with timestamp", async () => {
 
   let received = null;
 
-  bus.subscribe(EventTypes.RESULTS_DISPATCH, (event) => {
+  bus.subscribe(EventTypes.RELAY, (event) => {
     received = event;
   });
 
-  bus.publish({ type: EventTypes.RESULTS_DISPATCH });
+  bus.publish({ type: EventTypes.RELAY });
 
   await new Promise((r) => setTimeout(r, 0));
 
@@ -136,8 +136,8 @@ test("EventBus: event should be enriched with timestamp", async () => {
 test("EventBus: unsubscribe cleans up empty listener set", () => {
   const bus = new EventBus();
 
-  const unsubscribe = bus.subscribe(EventTypes.NEW_CONVERSATION, () => {});
+  const unsubscribe = bus.subscribe(EventTypes.CONVERSATION, () => {});
   unsubscribe();
 
-  assert.equal(bus.listeners.has(EventTypes.NEW_CONVERSATION), false);
+  assert.equal(bus.listeners.has(EventTypes.CONVERSATION), false);
 });
