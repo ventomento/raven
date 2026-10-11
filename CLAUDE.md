@@ -35,7 +35,7 @@ Classes are checked with `instanceof` via `insist`, so every module must import 
 
 **smep** is the pure crypto/envelope protocol with no I/O. It uses only WebCrypto (`crypto.subtle`), so the same code runs in Node and the browser.
 - Identities are X25519 keypairs held as `CryptoKey`s (`PrivateIdentity` / `PublicIdentity`). Peers are addressed by the hex public key, called **pkh** throughout (`spkh`/`rpkh` = sender/recipient).
-- `encrypt`: X25519 ECDH → `sha256(shared_secret)` as key (`kdf.js`) → AES-GCM with random IV → binary envelope (UUID, content type, keys, IV, ciphertext, tag) written by the hand-rolled big-endian `Serializer`.
+- `encrypt` / `createEnvelope`: X25519 ECDH → `sha256(shared_secret)` as key (`kdf.js`) → AES-GCM with random IV → binary envelope (UUID, content type, keys, IV, ciphertext‖tag). Layout constants are in `envelope/layout.js`. `EnvelopeWriter` writes the 94-byte header first (`writeHeader` returns it as the AES-GCM AAD), then `writeBody`, then `finish`. `readEnvelope` parses without decrypting (used for uuid dedup, relay validation) and exposes the received header bytes as `header`; decryption uses those, never re-serialized ones.
 - `insist(value, Class?)` from `smep/src/util/util.js` is the runtime type check used in constructors across both layers.
 
 **smerp** is the reference messaging client built around untrusted relays that store opaque encrypted envelopes.

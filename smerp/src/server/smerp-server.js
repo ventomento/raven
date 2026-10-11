@@ -6,9 +6,8 @@
 import http from "node:http";
 import { URL } from "node:url";
 import { StorageServer } from "./storage-server.js";
-import { Serializer } from "../../../smep/src/envelope/serializer.js";
 import { bytesToHex } from "../../../smep/src/encoding/hex.js";
-import { PrivateIdentity, PublicIdentity } from "../../../smep/src/index.js";
+import { PrivateIdentity, PublicIdentity, readEnvelope } from "../../../smep/src/index.js";
 import { verify } from "../auth/protocol.js";
 
 const AUTH_CONFIG = {
@@ -287,7 +286,7 @@ export class SmerpServer {
     try {
 
       unpacked =
-        Serializer.unpack(
+        readEnvelope(
           envelopeBuffer
         );
 

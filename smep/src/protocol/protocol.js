@@ -18,7 +18,8 @@ import { randomIV } from "../crypto/random.js";
 import { generateUuidBytes } from "../encoding/uuid.js";
 import { encodeUtf8, decodeUtf8 } from "../encoding/utf8.js";
 import { bytesToHex } from "../encoding/hex.js";
-import { Serializer } from "../envelope/serializer.js";
+import { EnvelopeWriter } from "../envelope/envelope-writer.js";
+import { readEnvelope } from "../envelope/envelope-reader.js";
 import { ContentTypes } from "../envelope/content-types.js";
 import { insist } from "../util/util.js";
 
@@ -26,44 +27,10 @@ import { insist } from "../util/util.js";
 // INTERNAL CRYPTO
 // ============================================================
 
-async function encryptBytes({
-  senderPrivateKey,
-  recipientPublicKey,
-  plaintextBytes,
-}) {
-  const sharedSecret = await deriveSharedSecret(
-      senderPrivateKey,
-      recipientPublicKey
-    );
-  const aesKey = await deriveAesKey(sharedSecret);
-  const iv = randomIV();
-
-  const { ciphertext, auth_tag } = await encryptAesGcm({
-      key: aesKey,
-      iv,
-      plaintext: plaintextBytes,
-    });
-
-  return { iv, ciphertext, auth_tag };
-}
-
-async function decryptBytes({
-  recipientPrivateKey,
-  senderPublicKey,
-  envelope,
-}) {
-  const sharedSecret = await deriveSharedSecret(
-      recipientPrivateKey,
-      senderPublicKey
-    );
-  const aesKey = await deriveAesKey(sharedSecret);
-
-  return decryptAesGcm({
-    key: aesKey,
-    iv: envelope.aes_gcm_iv,
-    ciphertext: envelope.ciphertext,
-    auth_tag: envelope.auth_tag,
-  });
+// Same key in both directions: either party can decrypt.
+async function deriveEnvelopeKey(privateKey, peerPublicKey) {
+  const sharedSecret = await deriveSharedSecret(privateKey, peerPublicKey);
+  return deriveAesKey(sharedSecret);
 }
 
 // ============================================================
@@ -80,44 +47,54 @@ function encodePlaintext(
     return encodeUtf8(plaintext);
   }
 
-  if (
-    (plaintext instanceof Uint8Array) ||
-    (plaintext instanceof ArrayBuffer)
-  ) {
+  if (plaintext instanceof Uint8Array) {
     return plaintext;
+  }
+
+  if (plaintext instanceof ArrayBuffer) {
+    return new Uint8Array(plaintext);
   }
 
   throw new Error("Type Error");
 }
 
-export async function createEncryptedEnvelope({
+// Returns the serialized envelope (ArrayBuffer). The header is written
+// first and authenticated as AAD, so none of its bytes can be altered.
+export async function createEnvelope({
   sender,
   recipient,
   plaintext,
   contentType = ContentTypes.TEXT_UTF8,
 }) {
-  
+
   const plaintextBytes = encodePlaintext(plaintext);
 
-  const { iv, ciphertext, auth_tag } = await encryptBytes({
-      senderPrivateKey: sender.privateKey,
-      recipientPublicKey: recipient.publicKey,
-      plaintextBytes,
-    });
+  // AES-GCM ciphertext is exactly as long as the plaintext.
+  const writer = new EnvelopeWriter(EnvelopeWriter.size(plaintextBytes.length));
 
-  return Object.freeze({
-    version: Serializer.VERSION,
+  const header = writer.writeHeader({
     uuid: generateUuidBytes(),
     sender_public_key: await exportPublicKeyBytes(sender.publicKey),
     recipient_public_key: await exportPublicKeyBytes(recipient.publicKey),
     timestamp: BigInt(Math.floor(Date.now() / 1000)),
     content_type: contentType,
-    aes_gcm_iv: iv,
-    ciphertext,
-    auth_tag,
   });
+
+  const aes_gcm_iv = randomIV();
+
+  const ciphertext_with_tag = await encryptAesGcm({
+    key: await deriveEnvelopeKey(sender.privateKey, recipient.publicKey),
+    iv: aes_gcm_iv,
+    plaintext: plaintextBytes,
+    aad: header,
+  });
+
+  writer.writeBody({ aes_gcm_iv, ciphertext_with_tag });
+
+  return writer.finish();
 }
 
+// Takes an envelope from readEnvelope.
 export async function decryptEnvelope({
   identity,
   envelope,
@@ -131,19 +108,19 @@ export async function decryptEnvelope({
   const envelopeSenderPublicHex = bytesToHex(envelope.sender_public_key);
   const envelopeRecipientPublicHex = bytesToHex(envelope.recipient_public_key);
 
-  let senderPublicKey;
+  // The peer is the other party. If identity is the sender, that is the recipient.
+  const peerPublicHex =
+    (identityPublicHex === envelopeSenderPublicHex)
+      ? envelopeRecipientPublicHex
+      : envelopeSenderPublicHex;
 
-  if (identityPublicHex === envelopeSenderPublicHex){
-    // special case. Identity is sender, hence swap sender with recipient. As if recipient was sender.
-    senderPublicKey = (await PublicIdentity.fromPublicHex(envelopeRecipientPublicHex)).publicKey;
-  } else {
-    senderPublicKey = (await PublicIdentity.fromPublicHex(envelopeSenderPublicHex)).publicKey;
-  }
+  const peerPublicKey = (await PublicIdentity.fromPublicHex(peerPublicHex)).publicKey;
 
-  let plaintext = await decryptBytes({
-    recipientPrivateKey: identity.privateKey,
-    senderPublicKey,
-    envelope,
+  let plaintext = await decryptAesGcm({
+    key: await deriveEnvelopeKey(identity.privateKey, peerPublicKey),
+    iv: envelope.aes_gcm_iv,
+    ciphertextWithTag: envelope.ciphertext_with_tag,
+    aad: envelope.header,
   });
 
   if (envelope.content_type === ContentTypes.TEXT_UTF8) {
@@ -151,8 +128,8 @@ export async function decryptEnvelope({
   }
 
   return Object.freeze({
-    senderPublicKeyHex: bytesToHex(envelope.sender_public_key),
-    recipientPublicKeyHex: bytesToHex(envelope.recipient_public_key),
+    senderPublicKeyHex: envelopeSenderPublicHex,
+    recipientPublicKeyHex: envelopeRecipientPublicHex,
     contentType: envelope.content_type,
     plaintext,
     timestamp: Number(envelope.timestamp),
@@ -175,15 +152,12 @@ export async function encrypt({
   insist(plaintext);
   insist(contentType);
 
-  const envelope =
-    await createEncryptedEnvelope({
-      sender,
-      recipient,
-      plaintext,
-      contentType,
-    });
-
-  return Serializer.pack(envelope);
+  return createEnvelope({
+    sender,
+    recipient,
+    plaintext,
+    contentType,
+  });
 }
 
 export async function decrypt({
@@ -193,7 +167,7 @@ export async function decrypt({
   insist(identity, PrivateIdentity);
   insist(envelopeBytes, ArrayBuffer);
 
-  const envelope = Serializer.unpack(envelopeBytes);
+  const envelope = readEnvelope(envelopeBytes);
 
   return decryptEnvelope({
     identity,

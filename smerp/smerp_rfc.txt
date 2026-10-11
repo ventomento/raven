@@ -17,11 +17,22 @@ archive
     Stores every accepted envelope indefinitely.
 
 relay
-    Makes no retention promise. It may delete an envelope at any time,
-    including once it has been served by GET.
+    Makes no retention promise. It may delete an envelope at any time.
+
+    As a guideline, a relay SHOULD keep an envelope until either:
+
+    - it has been served by GET to its recipient, that is, to a request
+      whose pkh is the envelope's recipient_public_key, or
+    - a retention time has passed since it was accepted. 7 days is
+      RECOMMENDED.
+
+    Serving an envelope to its sender is not delivery. Clients also
+    download their own sent envelopes (section 4), usually right after
+    sending, so a relay that deletes on any GET would often delete an
+    envelope before its recipient could fetch it.
 
 The client configures the type for each relay. The protocol does not
-advertise it.
+advertise it. Neither type guarantees delivery.
 
 
 3. Upload
@@ -78,6 +89,10 @@ Both relay types SHOULD forward each newly accepted envelope to the peer
 relays they know, using POST /envelopes. An envelope whose uuid the
 relay already holds is not forwarded again, which ends loops. Peer
 selection is local policy.
+
+A relay that deletes an envelope SHOULD keep its uuid for a while
+longer, so that a copy arriving again from a peer is recognized and
+neither stored nor forwarded again.
 
 Envelopes MUST be stored and forwarded byte-identical.
 

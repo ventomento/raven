@@ -1,4 +1,4 @@
-SMEP: Secure Messaging Envelope Protocol, Version 1
+SMEP: Secure Messaging Envelope Protocol, Version 2
 
 1. Overview
 ===========
@@ -36,15 +36,23 @@ The public key is the identity's address.
     shared = X25519(sender_private_key, recipient_public_key)
     key    = SHA256(shared)
     iv     = 12 random bytes
-    ciphertext || tag = AES-256-GCM(key, iv, plaintext)     (no AAD)
+    aad    = header, bytes 0-93 of the envelope (section 4)
+    ciphertext || tag = AES-256-GCM(key, iv, plaintext, aad)
 
-The tag is 16 bytes. If shared is all zero bytes, the operation MUST fail.
+The tag is 16 bytes. If shared is all zero bytes, the operation MUST
+fail.
+
+The header is complete before encryption: payload_size is
+28 + len(plaintext), since the ciphertext is as long as the plaintext.
+The header bytes are serialized once and used both as the aad and as
+the start of the envelope.
 
 The key is the same in both directions, so either party can decrypt. To
 decrypt, compute shared with the local private key and the peer's public
 key. The peer is sender_public_key, or recipient_public_key if the local
-identity is the sender (decrypting one's own sent envelope). If the tag
-does not verify, the envelope MUST be rejected.
+identity is the sender (decrypting one's own sent envelope). The aad is
+the received header bytes as-is, not re-serialized from parsed fields.
+If the tag does not verify, the envelope MUST be rejected.
 
 Plaintext is UTF-8 text when content_type is 0x01, otherwise raw bytes.
 
@@ -54,7 +62,7 @@ Plaintext is UTF-8 text when content_type is 0x01, otherwise raw bytes.
 
     offset  size  field                  type
     ------  ----  ---------------------  -------------------------------
-    0       1     version                uint8, 0x01
+    0       1     version                uint8, 0x02
     1       16    uuid                   random UUID v4
     17      32    sender_public_key      X25519 public key
     49      32    recipient_public_key   X25519 public key
@@ -67,7 +75,7 @@ Plaintext is UTF-8 text when content_type is 0x01, otherwise raw bytes.
 
 The header is 94 bytes. The total length MUST equal 94 + payload_size.
 
-A parser MUST reject an envelope with a version other than 0x01, a
+A parser MUST reject an envelope with a version other than 0x02, a
 payload_size below 28, or a total length that does not match.
 
 
@@ -81,16 +89,18 @@ payload_size below 28, or a total length that does not match.
     0x05  FILE
     0xFF  UNKNOWN
 
-content_type is a display hint only. It does not affect cryptography.
+content_type is a display hint only. It is authenticated as part of
+the header but does not otherwise affect cryptography.
 The envelope carries no filename or MIME type.
 
 
 6. Security Notes
 =================
 
-- The header is not authenticated (no AAD). uuid, timestamp and
-  content_type can be altered undetected. The two public keys are bound
-  implicitly: changing either one changes the key, so the tag fails.
+- The header is authenticated as aad, so no header field can be altered
+  without the tag failing. The two public keys are also bound by the
+  key itself. A valid tag does not make the timestamp true: it is
+  whatever the sender's clock said.
 - A valid tag proves the envelope was made by the holder of the sender's
   or the recipient's private key.
 - Every envelope between the same two identities uses the same key, so

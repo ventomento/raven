@@ -8,11 +8,13 @@ export { PrivateIdentity, PublicIdentity } from "./identity/identity.js";
 export {
   encrypt,
   decrypt,
-  createEncryptedEnvelope,
+  createEnvelope,
   decryptEnvelope,
 } from "./protocol/protocol.js";
 
-export { Serializer } from "./envelope/serializer.js";
+export { EnvelopeWriter } from "./envelope/envelope-writer.js";
+export { readEnvelope } from "./envelope/envelope-reader.js";
+export { EnvelopeLayout } from "./envelope/layout.js";
 export { ContentTypes } from "./envelope/content-types.js";
 
 // crypto primitives

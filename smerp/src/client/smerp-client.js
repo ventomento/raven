@@ -4,10 +4,10 @@ import {
   encrypt,
   PrivateIdentity,
   PublicIdentity,
+  readEnvelope,
 } from "../../../smep/src/index.js";
 
 import { insist } from "../../../smep/src/util/util.js";
-import { Serializer } from "../../../smep/src/envelope/serializer.js";
 import { ContentTypes } from "../../../smep/src/envelope/content-types.js";
 import { bytesToHex } from "../../../smep/src/encoding/hex.js";
 import { StorageMemory } from "../storage/storage-memory.js";
@@ -270,7 +270,7 @@ export class SmerpClient {
     void this.sync();
 
     const uuid = bytesToHex(
-      Serializer.unpack(envelopeBytes).uuid
+      readEnvelope(envelopeBytes).uuid
     );
 
     return { uuid, delivered, failed };

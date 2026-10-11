@@ -1,4 +1,4 @@
-import { decryptEnvelope, PrivateIdentity, Serializer, bytesToHex } from "../../../smep/src/index.js";
+import { decryptEnvelope, PrivateIdentity, readEnvelope, bytesToHex } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
 import { EventBus, EventTypes } from "../event/event-bus.js";
 import { ConcurrencyLimiter } from "../sync/concurrency-limiter.js";
@@ -71,7 +71,7 @@ export class Ingestor {
     let unpacked;
 
     try {
-      unpacked = Serializer.unpack(envelopeBytes);
+      unpacked = readEnvelope(envelopeBytes);
     }
     catch (error) {
       return this.rejected(null, error);

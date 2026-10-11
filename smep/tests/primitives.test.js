@@ -87,10 +87,8 @@ test(
       await decryptAesGcm({
         key,
         iv,
-        ciphertext:
-          encrypted.ciphertext,
-        auth_tag:
-          encrypted.auth_tag
+        ciphertextWithTag:
+          encrypted
       });
 
     assert.equal(
@@ -132,7 +130,7 @@ test(
         plaintext
       });
 
-    encrypted.ciphertext[0] ^= 0xff;
+    encrypted[0] ^= 0xff;
 
     await assert.rejects(
       async () => {
@@ -140,13 +138,43 @@ test(
         await decryptAesGcm({
           key,
           iv,
-          ciphertext:
-            encrypted.ciphertext,
-          auth_tag:
-            encrypted.auth_tag
+          ciphertextWithTag:
+            encrypted
         });
 
       }
+    );
+  }
+);
+
+test(
+  "AES-GCM rejects mismatched aad",
+  async () => {
+
+    const key =
+      await deriveAesKey(
+        crypto.getRandomValues(
+          new Uint8Array(32)
+        )
+      );
+
+    const iv = randomIV();
+
+    const encrypted =
+      await encryptAesGcm({
+        key,
+        iv,
+        plaintext: new Uint8Array([1, 2, 3]),
+        aad: new Uint8Array([7])
+      });
+
+    await assert.rejects(
+      decryptAesGcm({
+        key,
+        iv,
+        ciphertextWithTag: encrypted,
+        aad: new Uint8Array([8])
+      })
     );
   }
 );

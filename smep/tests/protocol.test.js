@@ -7,17 +7,51 @@ import assert from "node:assert/strict";
 import {
   encrypt,
   decrypt,
-  createEncryptedEnvelope,
+  createEnvelope,
   decryptEnvelope,
 } from "../src/protocol/protocol.js";
 
 import { PrivateIdentity } from "../src/identity/identity.js";
 import { PublicIdentity } from "../src/identity/identity.js";
 
-import { Serializer } from "../src/envelope/serializer.js";
+import { readEnvelope } from "../src/envelope/envelope-reader.js";
+import { EnvelopeLayout } from "../src/envelope/layout.js";
 import { ContentTypes } from "../src/envelope/content-types.js";
 
 import { exportPublicKeyBytes } from "../src/crypto/x25519.js";
+
+// Byte offsets in a serialized envelope (smep_rfc.txt section 4).
+const OFFSET = {
+  VERSION: 0,
+  UUID: 1,
+  SENDER: 17,
+  RECIPIENT: 49,
+  TIMESTAMP: 81,
+  CONTENT_TYPE: 89,
+  IV: 94,
+  CIPHERTEXT: 106,
+};
+
+// alice -> bob envelope bytes.
+async function aliceToBob(plaintext = "hello") {
+  const alice = await PrivateIdentity.generate();
+  const bob = await PrivateIdentity.generate();
+
+  const envelopeBytes = await createEnvelope({
+    sender: alice,
+    recipient: new PublicIdentity(bob.publicKey),
+    plaintext,
+  });
+
+  return { alice, bob, envelopeBytes };
+}
+
+// Copy of buffer with one byte flipped.
+function flipByte(buffer, offset) {
+  const copy = new Uint8Array(buffer.slice(0));
+  copy[offset] ^= 0xff;
+  return copy.buffer;
+}
 
 // ============================================================
 // ROUNDTRIP
@@ -137,59 +171,20 @@ test("unrelated identity cannot decrypt", async () => {
 // ENVELOPE API
 // ============================================================
 
-test("createEncryptedEnvelope/decryptEnvelope roundtrip", async () => {
-  const alice = await PrivateIdentity.generate();
-  const bob = await PrivateIdentity.generate();
+test("createEnvelope/decryptEnvelope roundtrip", async () => {
+  const { bob, envelopeBytes } = await aliceToBob("envelope api");
 
-  const envelope =
-    await createEncryptedEnvelope({
-      sender: alice,
-      recipient: new PublicIdentity(bob.publicKey),
-      plaintext: "envelope api",
-    });
+  assert.ok(envelopeBytes instanceof ArrayBuffer);
 
   const result =
     await decryptEnvelope({
       identity: bob,
-      envelope,
+      envelope: readEnvelope(envelopeBytes),
     });
 
   assert.equal(
     result.plaintext,
     "envelope api"
-  );
-});
-
-// ============================================================
-// SERIALIZATION ROUNDTRIP
-// ============================================================
-
-test("serialized envelope roundtrip", async () => {
-  const alice = await PrivateIdentity.generate();
-  const bob = await PrivateIdentity.generate();
-
-  const envelope =
-    await createEncryptedEnvelope({
-      sender: alice,
-      recipient: new PublicIdentity(bob.publicKey),
-      plaintext: "serialization",
-    });
-
-  const packed =
-    Serializer.pack(envelope);
-
-  const unpacked =
-    Serializer.unpack(packed);
-
-  const result =
-    await decryptEnvelope({
-      identity: bob,
-      envelope: unpacked,
-    });
-
-  assert.equal(
-    result.plaintext,
-    "serialization"
   );
 });
 
@@ -238,167 +233,61 @@ test("binary payload roundtrip", async () => {
 // TAMPERING TESTS
 // ============================================================
 
-test("tampered ciphertext fails", async () => {
-  const alice = await PrivateIdentity.generate();
-  const bob = await PrivateIdentity.generate();
+// Every byte except the version is authenticated: the header as AAD,
+// the payload by the tag. (A changed version fails to parse.)
+const tamperCases = [
+  ["uuid", OFFSET.UUID],
+  ["sender public key", OFFSET.SENDER],
+  ["recipient public key", OFFSET.RECIPIENT],
+  ["timestamp", OFFSET.TIMESTAMP + 7],
+  ["content type", OFFSET.CONTENT_TYPE],
+  ["IV", OFFSET.IV],
+  ["ciphertext", OFFSET.CIPHERTEXT],
+  ["auth tag", -1],
+];
 
-  const packed = await encrypt({
-    sender: alice,
-    recipient: new PublicIdentity(bob.publicKey),
-    plaintext: "hello",
+for (const [name, offset] of tamperCases) {
+  test(`tampered ${name} fails`, async () => {
+    const { bob, envelopeBytes } = await aliceToBob();
+
+    const position =
+      offset < 0 ? envelopeBytes.byteLength + offset : offset;
+
+    await assert.rejects(
+      decrypt({
+        identity: bob,
+        envelopeBytes: flipByte(envelopeBytes, position),
+      })
+    );
   });
-
-  const tampered =
-    new Uint8Array(packed);
-
-  tampered[tampered.length - 1] ^= 0xff;
-
-  await assert.rejects(async () => {
-    await decrypt({
-      identity: bob,
-      envelopeBytes: tampered.buffer,
-    });
-  });
-});
-
-test("tampered auth tag fails", async () => {
-  const alice = await PrivateIdentity.generate();
-  const bob = await PrivateIdentity.generate();
-
-  const envelope =
-    await createEncryptedEnvelope({
-      sender: alice,
-      recipient: new PublicIdentity(bob.publicKey),
-      plaintext: "hello",
-    });
-
-  const modified = {
-    ...envelope,
-    auth_tag: envelope.auth_tag.slice(),
-  };
-
-  modified.auth_tag[0] ^= 0xff;
-
-  await assert.rejects(async () => {
-    await decryptEnvelope({
-      identity: bob,
-      envelope: modified,
-    });
-  });
-});
-
-test("tampered IV fails", async () => {
-  const alice = await PrivateIdentity.generate();
-  const bob = await PrivateIdentity.generate();
-
-  const envelope =
-    await createEncryptedEnvelope({
-      sender: alice,
-      recipient: new PublicIdentity(bob.publicKey),
-      plaintext: "hello",
-    });
-
-  const modified = {
-    ...envelope,
-    aes_gcm_iv: envelope.aes_gcm_iv.slice(),
-  };
-
-  modified.aes_gcm_iv[0] ^= 0xff;
-
-  await assert.rejects(async () => {
-    await decryptEnvelope({
-      identity: bob,
-      envelope: modified,
-    });
-  });
-});
-
-// ============================================================
-// FORGED SENDER
-// ============================================================
+}
 
 test("forged sender public key fails", async () => {
-  const alice = await PrivateIdentity.generate();
-  const bob = await PrivateIdentity.generate();
+  const { bob, envelopeBytes } = await aliceToBob();
   const mallory = await PrivateIdentity.generate();
 
-  const envelope =
-    await createEncryptedEnvelope({
-      sender: alice,
-      recipient: new PublicIdentity(bob.publicKey),
-      plaintext: "hello",
-    });
+  const forged = new Uint8Array(envelopeBytes.slice(0));
 
-  const forged = {
-    ...envelope,
-    sender_public_key:
-      await exportPublicKeyBytes(
-        mallory.publicKey
-      ),
-  };
+  forged.set(
+    await exportPublicKeyBytes(mallory.publicKey),
+    OFFSET.SENDER
+  );
 
-  await assert.rejects(async () => {
-    await decryptEnvelope({
+  await assert.rejects(
+    decrypt({
       identity: bob,
-      envelope: forged,
-    });
-  });
+      envelopeBytes: forged.buffer,
+    })
+  );
 });
 
-// ============================================================
-// METADATA TAMPERING
-// ============================================================
+test("read header is the envelope's first bytes", async () => {
+  const { envelopeBytes } = await aliceToBob();
 
-test("uuid modification does not affect decryption", async () => {
-  const alice = await PrivateIdentity.generate();
-  const bob = await PrivateIdentity.generate();
-
-  const envelope =
-    await createEncryptedEnvelope({
-      sender: alice,
-      recipient: new PublicIdentity(bob.publicKey),
-      plaintext: "hello",
-    });
-
-  const modified = {
-    ...envelope,
-    uuid: crypto.getRandomValues(
-      new Uint8Array(16)
-    ),
-  };
-
-  const result =
-    await decryptEnvelope({
-      identity: bob,
-      envelope: modified,
-    });
-
-  assert.equal(result.plaintext, "hello");
-});
-
-test("timestamp modification does not affect decryption", async () => {
-  const alice = await PrivateIdentity.generate();
-  const bob = await PrivateIdentity.generate();
-
-  const envelope =
-    await createEncryptedEnvelope({
-      sender: alice,
-      recipient: new PublicIdentity(bob.publicKey),
-      plaintext: "hello",
-    });
-
-  const modified = {
-    ...envelope,
-    timestamp: 0n,
-  };
-
-  const result =
-    await decryptEnvelope({
-      identity: bob,
-      envelope: modified,
-    });
-
-  assert.equal(result.plaintext, "hello");
+  assert.deepEqual(
+    readEnvelope(envelopeBytes).header,
+    new Uint8Array(envelopeBytes, 0, EnvelopeLayout.HEADER_SIZE)
+  );
 });
 
 // ============================================================
@@ -445,18 +334,21 @@ test("random garbage fails", async () => {
   });
 });
 
-test("envelope object is frozen", async () => {
+test("ArrayBuffer plaintext roundtrip", async () => {
   const alice = await PrivateIdentity.generate();
   const bob = await PrivateIdentity.generate();
 
-  const envelope =
-    await createEncryptedEnvelope({
-      sender: alice,
-      recipient: new PublicIdentity(bob.publicKey),
-      plaintext: "hello",
-    });
+  const envelopeBytes = await createEnvelope({
+    sender: alice,
+    recipient: new PublicIdentity(bob.publicKey),
+    plaintext: new Uint8Array([1, 2, 3]).buffer,
+    contentType: ContentTypes.FILE,
+  });
 
-  assert.ok(
-    Object.isFrozen(envelope)
-  );
+  const result = await decrypt({
+    identity: bob,
+    envelopeBytes,
+  });
+
+  assert.deepEqual(Array.from(result.plaintext), [1, 2, 3]);
 });
