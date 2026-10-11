@@ -2,17 +2,20 @@
 
 import { EventTypes } from "../../../index.js";
 import { h, replaceChildren, perFrame } from "../dom.js";
-import { shortHex, formatTime, parsePublicKeyHex } from "../format.js";
+import { shortHex, formatTime } from "../format.js";
 
 /**
  * Configured relays with their sync health, a toggle to disable one, a
- * delete button, and a form to add a relay.
+ * delete button, an access token editor, and a form to add a relay.
  */
 export class RelaysView {
 
   constructor({ client }) {
     this.client = client;
     this.list = null;
+    // relayUrl -> token editor. Reused across renders so a sync event
+    // does not wipe what the user is typing.
+    this.tokenEditors = new Map();
     this.scheduleRender = perFrame(() => void this.#render());
   }
 
@@ -34,6 +37,7 @@ export class RelaysView {
 
   unmount() {
     this.list = null;
+    this.tokenEditors.clear();
   }
 
   async #render() {
@@ -57,6 +61,14 @@ export class RelaysView {
 
     relays.sort((a, b) => a.relayUrl.localeCompare(b.relayUrl));
 
+    const urls = new Set(relays.map(relay => relay.relayUrl));
+
+    for (const relayUrl of this.tokenEditors.keys()) {
+      if (!urls.has(relayUrl)) {
+        this.tokenEditors.delete(relayUrl);
+      }
+    }
+
     replaceChildren(this.list, relays.map(relay => this.#row(relay)));
   }
 
@@ -70,7 +82,13 @@ export class RelaysView {
         h("dt", { class: "muted" }, "Type"),
         h("dd", {}, relay.relayType),
         h("dt", { class: "muted" }, "Public key"),
-        h("dd", { class: "mono", title: relay.relayPkh }, shortHex(relay.relayPkh))
+        relay.relayPkh
+          ? h("dd", { class: "mono", title: relay.relayPkh }, shortHex(relay.relayPkh))
+          : h("dd", { class: "muted" }, "Learned on first sync"),
+        h("dt", { class: "muted" }, "Access token"),
+        relay.relayToken
+          ? h("dd", { class: "mono" }, maskToken(relay.relayToken))
+          : h("dd", { class: "muted" }, "None")
       ),
       h("div", { class: `small ${failing ? "warn" : "muted"}` },
         relay.disabled
@@ -78,6 +96,11 @@ export class RelaysView {
           : `Last sync ${formatTime(relay.lastSuccessAt)}` +
             (failing ? ` · ${relay.failureCount} failure${relay.failureCount > 1 ? "s" : ""} in a row` : "")
       ),
+      // May quote the relay: rendered as text only.
+      failing && relay.lastFailureReason
+        ? h("div", { class: "small warn" }, relay.lastFailureReason)
+        : null,
+      this.#tokenEditor(relay),
       h("div", { class: "form-row" },
         h("button", {
           class: "ghost",
@@ -93,10 +116,55 @@ export class RelaysView {
     );
   }
 
+  // Collapsible password field to set, change or clear the token.
+  #tokenEditor(relay) {
+
+    const existing = this.tokenEditors.get(relay.relayUrl);
+
+    if (existing) {
+      return existing;
+    }
+
+    const input = tokenInput();
+
+    const save = async (relayToken) => {
+
+      const [current] = await this.client.relaysGet({ relayUrl: relay.relayUrl });
+
+      if (!current) {
+        return;
+      }
+
+      await this.client.relaysPut({ ...current, relayToken });
+      input.value = "";
+      editor.open = false;
+    };
+
+    const editor = h("details", { class: "token-editor small" },
+      h("summary", {}, "Access token"),
+      h("form", {
+        onsubmit: (e) => {
+          e.preventDefault();
+          void save(input.value.trim() || null);
+        },
+      },
+        input,
+        h("div", { class: "form-row" },
+          h("button", { class: "primary", type: "submit" }, "Save"),
+          h("button", { class: "ghost danger", type: "button", onclick: () => void save(null) }, "Clear")
+        )
+      )
+    );
+
+    this.tokenEditors.set(relay.relayUrl, editor);
+
+    return editor;
+  }
+
   #addForm() {
 
     const url = h("input", { type: "url", placeholder: "https://relay.example", required: true });
-    const pkh = h("input", { class: "mono", type: "text", placeholder: "Relay public key (hex)", autocomplete: "off", required: true });
+    const token = tokenInput("Access token (optional)");
     const type = h("select", { "aria-label": "Relay type" },
       h("option", { value: "archive" }, "archive"),
       h("option", { value: "relay" }, "relay")
@@ -109,22 +177,14 @@ export class RelaysView {
 
         e.preventDefault();
 
-        const relayPkh = parsePublicKeyHex(pkh.value);
-
-        if (!relayPkh) {
-          status.textContent = "Relay key must be a 64 character hex public key.";
-          status.className = "form-status error";
-          return;
-        }
-
         try {
           await this.client.relaysPut({
             relayUrl: url.value.trim().replace(/\/+$/, ""),
             relayType: type.value,
-            relayPkh,
+            relayToken: token.value.trim() || null,
           });
           url.value = "";
-          pkh.value = "";
+          token.value = "";
           status.textContent = "";
         }
         catch (error) {
@@ -135,8 +195,8 @@ export class RelaysView {
     },
       h("div", { class: "label" }, "Add relay"),
       url,
-      pkh,
       type,
+      token,
       h("div", { class: "form-row" },
         h("button", { class: "primary", type: "submit" }, "Add")
       ),
@@ -145,4 +205,13 @@ export class RelaysView {
 
     return form;
   }
+}
+
+function tokenInput(placeholder = "Access token") {
+  return h("input", { type: "password", placeholder, autocomplete: "off" });
+}
+
+// Never show a token in full.
+function maskToken(token) {
+  return `••••${token.slice(-4)}`;
 }

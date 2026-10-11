@@ -7,28 +7,33 @@ import http from "node:http";
 import { URL } from "node:url";
 import { StorageServer } from "./storage-server.js";
 import { bytesToHex } from "../../../smep/src/encoding/hex.js";
-import { PrivateIdentity, PublicIdentity, readEnvelope } from "../../../smep/src/index.js";
-import { verify } from "../auth/protocol.js";
-
-const AUTH_CONFIG = {
-  publicKeyHex: "0xeb03b29ead5416dae89af429e77f649c3e9f8628cb032a12aa17a03e1d6bf249",
-  privateKeyHex: "0xab534a94a7acad200f54653a81fc776980be44c91ea029f5b47eb16289d9da0f"
-}
+import { PrivateIdentity, readEnvelope } from "../../../smep/src/index.js";
+import { RequestVerifier } from "../auth/request-signer.js";
 
 export class SmerpServer {
 
-  // Fixed relay identity. Clients need it as relayPkh to authenticate.
-  static PUBLIC_KEY_HEX = AUTH_CONFIG.publicKeyHex;
-
+  // The relay keypair is generated on construction unless privateKeyHex
+  // is given. Clients learn its public key from the x-smerp-relay-pkh
+  // header sent on every response, so nothing has to be configured.
+  //
+  // Every request must be signed. tokens: a Set of access tokens; when
+  // given, every request must also carry one as a bearer token.
   constructor({
     storage = new StorageServer(),
+    privateKeyHex = null,
+    tokens = null,
   } = {}) {
 
     this.storage = storage;
+    this.tokens = tokens;
 
-    this.identityPromise =
-    PrivateIdentity.fromPrivateKeyHex(
-      AUTH_CONFIG.privateKeyHex
+    this.identityPromise = null;
+    this.verifierPromise = null;
+
+    this.#useIdentity(
+      privateKeyHex === null
+        ? PrivateIdentity.generate()
+        : PrivateIdentity.fromPrivateKeyHex(privateKeyHex)
     );
 
     this.server = http.createServer(
@@ -52,6 +57,25 @@ export class SmerpServer {
     });
   }
 
+  // Current relay public key hex, as sent in x-smerp-relay-pkh.
+  async relayPkh() {
+    return (await this.identityPromise).publicKeyHex;
+  }
+
+  // Replace the relay keypair. Clients signing with the old key get a
+  // 401 carrying the new one and retry.
+  rotateKey() {
+    this.#useIdentity(PrivateIdentity.generate());
+    return this.relayPkh();
+  }
+
+  #useIdentity(identityPromise) {
+    this.identityPromise = identityPromise;
+    this.verifierPromise = identityPromise.then(
+      identity => new RequestVerifier({ identity })
+    );
+  }
+
   close() {
     return new Promise((resolve, reject) => {
       this.server.close((err) => {
@@ -64,76 +88,50 @@ export class SmerpServer {
     });
   }
   
-  async #authenticateGet(
-  req,
-  url
-) {
+  // ============================================================
+  // AUTHENTICATION
+  // ============================================================
 
-  const pkh =
-    url.searchParams.get("pkh");
+  // Verifies the request signature, then the access token if this relay
+  // requires one. Returns { ok: true, pkh } or { ok: false, reason }.
+  async #authenticate(req, body) {
 
-  const timestamp =
-    req.headers["x-smerp-timestamp"];
+    const verifier = await this.verifierPromise;
 
-  const signature =
-    req.headers["x-smerp-signature"];
-
-  if (
-    !pkh ||
-    !timestamp ||
-    !signature
-  ) {
-    return false;
-  }
-
-  const now =
-    Math.floor(Date.now() / 1000);
-
-  const ts =
-    Number(timestamp);
-
-  if (
-    !Number.isInteger(ts) ||
-    Math.abs(now - ts) > 300
-  ) {
-    return false;
-  }
-
-  const relayIdentity =
-    await this.identityPromise;
-
-  const data =
-    new TextEncoder().encode(
-      timestamp
-    );
-
-  // A malformed or low-order pkh, or a non-hex signature, throws:
-  // that is a failed authentication (401), not a server error.
-  try {
-
-    const clientIdentity =
-      await PublicIdentity.fromPublicHex(
-        pkh
-      );
-
-    return await verify({
-      privateIdentity:
-        relayIdentity,
-
-      publicIdentity:
-        clientIdentity,
-
-      dataHex:
-        bytesToHex(data),
-
-      signatureHex:
-        signature
+    const result = await verifier.verify({
+      method: req.method,
+      target: req.url,
+      headers: req.headers,
+      body,
     });
 
-  } catch {
-    return false;
+    if (!result.ok) {
+      return result;
+    }
+
+    if (!this.#hasValidToken(req)) {
+      return { ok: false, reason: "missing or invalid access token" };
+    }
+
+    return result;
   }
-}
+
+  #hasValidToken(req) {
+
+    if (this.tokens === null) {
+      return true;
+    }
+
+    const match = /^Bearer (.+)$/.exec(req.headers.authorization ?? "");
+
+    return match !== null && this.tokens.has(match[1]);
+  }
+
+  #unauthorized(res, reason) {
+    res.statusCode = 401;
+    res.setHeader("x-smerp-unauthorized", reason);
+    res.end();
+  }
 
   // ============================================================
   // REQUEST ROUTER
@@ -146,6 +144,8 @@ export class SmerpServer {
       // Allow CORS from everywhere
       // -------------------------------------------------
 
+      res.setHeader("x-smerp-relay-pkh", await this.relayPkh());
+
       res.setHeader("Access-Control-Allow-Origin", "*");
 
       res.setHeader(
@@ -156,13 +156,16 @@ export class SmerpServer {
       res.setHeader("Access-Control-Allow-Headers", [
         "*",
         "content-type",
+        "x-smerp-pkh",
         "x-smerp-timestamp",
         "x-smerp-signature",
+        "authorization",
       ]);
 
       res.setHeader("Access-Control-Expose-Headers", [
         "x-smerp-cursor",
         "x-smerp-unauthorized",
+        "x-smerp-relay-pkh",
       ]);
 
       const url =
@@ -281,6 +284,14 @@ export class SmerpServer {
     const envelopeBuffer =
       await this.#readRequestBody(req);
 
+    const auth =
+      await this.#authenticate(req, envelopeBuffer);
+
+    if (!auth.ok) {
+      this.#unauthorized(res, auth.reason);
+      return;
+    }
+
     let unpacked;
 
     try {
@@ -309,6 +320,13 @@ export class SmerpServer {
       bytesToHex(
         unpacked.recipient_public_key
       );
+
+    // Mock policy: clients may upload envelopes they sent or received.
+    // A relay that federates would also accept its known peers here.
+    if (auth.pkh !== spkh && auth.pkh !== rpkh) {
+      this.#unauthorized(res, "signer is neither sender nor recipient");
+      return;
+    }
 
     const size = envelopeBuffer.byteLength;
 
@@ -351,27 +369,16 @@ export class SmerpServer {
     url
   ) {
 
-    const pkh =
-      url.searchParams.get("pkh");
+    const auth =
+      await this.#authenticate(req);
 
-    if (
-      !(await this.#authenticateGet(
-        req,
-        url
-      ))
-    ) {
-
-      res.statusCode = 401;
-
-      res.setHeader(
-        "x-smerp-unauthorized",
-        "invalid signature"
-      );
-
-      res.end();
-
+    if (!auth.ok) {
+      this.#unauthorized(res, auth.reason);
       return;
     }
+
+    // The mailbox is the signer's.
+    const pkh = auth.pkh;
 
     const idRaw =
       url.searchParams.get("cursor");

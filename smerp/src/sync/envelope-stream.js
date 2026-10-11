@@ -1,13 +1,10 @@
-import { insist, PrivateIdentity } from "../../../smep/src/index.js";
-import { TransportDefault } from "../transport/transport-default.js";
+import { insist } from "../../../smep/src/index.js";
 import { RequestBuilder } from "../request/request-builder.js";
-import { Authenticator} from "../auth/authenticator.js";
+import { RelayRequester } from "../request/relay-requester.js";
 import { RealClock, retryAfterMs } from "./rate-limiter.js";
 
 const SMERP_HEADERS = Object.freeze({
     cursor: "x-smerp-cursor",
-    signature: "x-smerp-signature",
-    timestamp: "x-smerp-timestamp",
     unauthorized: "x-smerp-unauthorized",
 });
 
@@ -32,30 +29,28 @@ const STATUS = Object.freeze({
  *   { type: "throttled", retryAfterMs }   429
  *   { type: "failure", error }            anything else
  *
- * Relay health (failureCount, lastSuccessAt, lastFailureAt) is updated
- * on relay as a side effect. A 429 counts as neither.
+ * Relay health (failureCount, lastSuccessAt, lastFailureAt,
+ * lastFailureReason) is updated on relay as a side effect. A 429 counts
+ * as neither. Signing, tokens and relay key learning are the requester's.
  */
 export class EnvelopeStream {
 
     constructor({
-        identity,
         relay,
-        transporter = TransportDefault,
+        requester,
         logger,
         clock = RealClock,
-        authenticator = new Authenticator({ identity, relay, clock }),
     }) {
 
-        insist(identity, PrivateIdentity);
+        insist(relay);
+        insist(requester, RelayRequester);
 
-        this.identity = identity;
         this.relay = relay;
         this.relay.cursor ??= 0;
 
-        this.transporter = transporter;
+        this.requester = requester;
         this.logger = logger;
         this.clock = clock;
-        this.authenticator = authenticator;
     }
 
     // ------------------------------------------------------------------
@@ -67,32 +62,17 @@ export class EnvelopeStream {
         let response;
 
         try {
-            response = await this.envelopesGet();
+            response = await this.requester.request(
+                this.relay,
+                RequestBuilder.envelopesGet(this.relay)
+            );
         }
         catch (error) {
-            this.relayFailure();
+            this.relayFailure(error.message);
             return { type: "failure", error };
         }
 
         return this.processResponse(response);
-    }
-
-    // ------------------------------------------------------------------
-    // Transport
-    // ------------------------------------------------------------------
-
-    async envelopesGet() {
-
-        return this.transporter.transport({
-            url: RequestBuilder.urlEnvelopesGet(
-                this.relay,
-                this.identity.publicKeyHex
-            ),
-            options: {
-                headers: await this.authenticator.headers(),
-            },
-            logger: this.logger,
-        });
     }
 
     // ------------------------------------------------------------------
@@ -128,7 +108,7 @@ export class EnvelopeStream {
             cursor = this.parseCursor(response.headers);
         }
         catch (error) {
-            this.relayFailure();
+            this.relayFailure(error.message);
             this.logger?.warn?.(`Invalid cursor received: ${error.message}`);
             return { type: "failure", error };
         }
@@ -136,7 +116,7 @@ export class EnvelopeStream {
         // The cursor is valid, so the relay can be moved past whatever this
         // is, but serving it is the relay's fault.
         if (!(response.body instanceof ArrayBuffer)) {
-            this.relayFailure();
+            this.relayFailure("relay returned a non-binary body");
             return { type: "invalid-body", cursor };
         }
 
@@ -154,11 +134,14 @@ export class EnvelopeStream {
 
     on401(response) {
 
-        if (SMERP_HEADERS.unauthorized in response.headers) {
-            this.logger?.warn?.("smerp protocol unauthorized");
-        }
+        const reason = response.headers?.[SMERP_HEADERS.unauthorized];
 
-        this.relayFailure();
+        this.logger?.warn?.(`Relay unauthorized: ${reason ?? "no reason given"}`);
+
+        // The relay's reason is untrusted text, kept for display only.
+        this.relayFailure(
+            typeof reason === "string" ? `unauthorized: ${reason}` : "unauthorized"
+        );
 
         return {
             type: "failure",
@@ -176,7 +159,7 @@ export class EnvelopeStream {
 
     onUnsupported(response) {
 
-        this.relayFailure();
+        this.relayFailure(`unsupported response status ${response.status}`);
 
         this.logger?.warn?.(
             `Unsupported response status: ${response.status}`
@@ -215,11 +198,13 @@ export class EnvelopeStream {
 
         this.relay.lastSuccessAt = this.clock.now();
         this.relay.failureCount = 0;
+        this.relay.lastFailureReason = null;
     }
 
-    relayFailure() {
+    relayFailure(reason) {
 
         this.relay.failureCount = (this.relay.failureCount ?? 0) + 1;
         this.relay.lastFailureAt = this.clock.now();
+        this.relay.lastFailureReason = reason;
     }
 }

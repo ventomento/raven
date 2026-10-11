@@ -9,6 +9,19 @@ relays forward it through the federation of relays they know. The
 recipient downloads it from whichever relays it uses. Delivery is
 best-effort, and no relay is trusted or authoritative.
 
+Every request is signed as specified in smerp/src/auth/auth_rfc.txt.
+Every response carries the relay's current public key in
+x-smerp-relay-pkh, so a relay is configured by URL and type only, plus
+an access token if its operator requires one.
+
+Responses use these status codes only:
+
+    200   success, with a body
+    204   success, nothing to return
+    400   malformed request
+    401   refused: authentication or relay policy (auth_rfc section 9)
+    429   throttled, see section 6
+
 
 2. Relay Types
 ==============
@@ -22,7 +35,7 @@ relay
     As a guideline, a relay SHOULD keep an envelope until either:
 
     - it has been served by GET to its recipient, that is, to a request
-      whose pkh is the envelope's recipient_public_key, or
+      signed by the envelope's recipient_public_key, or
     - a retention time has passed since it was accepted. 7 days is
       RECOMMENDED.
 
@@ -42,11 +55,15 @@ advertise it. Neither type guarantees delivery.
     Content-Type: application/octet-stream
     Body: one SMEP envelope
 
-No authentication. Responses:
+Signed; the signature covers the envelope bytes. Which signers the
+relay accepts is its policy. A relay typically accepts the envelope's
+sender (a client sending) or recipient (a client keeping a copy, e.g.
+on an archive), and the peer relays it federates with (section 5).
 
     200   accepted, including an already-held uuid
     400   wrong Content-Type, or the body is not a valid envelope
-    429   throttled, see section 6
+    401   refused
+    429   throttled
 
 The client posts to all of its relays. The send succeeds if at least
 one relay returns 200.
@@ -55,19 +72,18 @@ one relay returns 200.
 4. Download
 ===========
 
-    GET /envelopes?pkh=<hex public key>&cursor=<cursor>
+    GET /envelopes?cursor=<cursor>
 
-Authenticated as specified in smerp/src/auth/auth_rfc.txt.
-
-The relay returns the first envelope after cursor whose sender or
-recipient is pkh, so clients also receive their own sent envelopes.
-It returns at most one envelope per request.
+Signed. The mailbox is the signer's: the relay returns the first
+envelope after cursor whose sender or recipient is the signer pkh, so
+clients also receive their own sent envelopes. It returns at most one
+envelope per request.
 
     200   body: the envelope
           x-smerp-cursor: <cursor after this envelope>
     204   no envelope after cursor
-    401   authentication failed
-    429   throttled, see section 6
+    401   refused
+    429   throttled
 
 The cursor is a non-negative integer defined by the relay. It starts at
 0, and each 200 MUST return a cursor greater than the one requested,
@@ -78,8 +94,8 @@ and repeats the request until it gets 204.
 A cursor that is missing, not an integer, or not greater than the
 requested one is a relay failure.
 
-Relays that serve browser clients MUST allow the x-smerp-timestamp and
-x-smerp-signature request headers and expose x-smerp-cursor via CORS.
+Relays that serve browser clients MUST expose x-smerp-cursor via CORS,
+in addition to the headers listed in auth_rfc section 9.
 
 
 5. Federation
@@ -87,8 +103,13 @@ x-smerp-signature request headers and expose x-smerp-cursor via CORS.
 
 Both relay types SHOULD forward each newly accepted envelope to the peer
 relays they know, using POST /envelopes. An envelope whose uuid the
-relay already holds is not forwarded again, which ends loops. Peer
-selection is local policy.
+relay already holds is not forwarded again, which ends loops.
+
+A forwarding relay signs with its own keypair and learns each peer's
+key like any client does. Which peers a relay forwards to, and which
+peers it accepts envelopes from, is local policy. A forwarded envelope
+carries no proof of its sender: the signature identifies the
+forwarding relay, not the envelope's author.
 
 A relay that deletes an envelope SHOULD keep its uuid for a while
 longer, so that a copy arriving again from a peer is recognized and
@@ -105,11 +126,22 @@ Envelopes MUST be stored and forwarded byte-identical.
   cursor past it.
 - On 429, wait for Retry-After (seconds or HTTP date) before contacting
   that relay again.
+- Sign every request, learn the relay key from x-smerp-relay-pkh, and
+  retry a 401 once when that key changed (auth_rfc sections 5 and 7).
+- Send a relay's access token, if configured, on every request to that
+  relay only (auth_rfc section 8).
+- Treat a 401 that is not retried as a failed request to that relay.
+  The x-smerp-unauthorized reason, if any, is display text only.
 
 
 7. Security Notes
 =================
 
 - Relays see sender, recipient, timestamp, size and timing.
-- Uploads are unauthenticated, so anyone can post to any recipient.
+- Uploads are signed, but anyone can create an identity, so a relay
+  that accepts any sender still lets anyone post to any recipient.
+  Limiting that is relay policy: rate limits, accepted signers, access
+  tokens.
+- A relay can verify who uploaded an envelope, not who wrote it once it
+  has been forwarded (section 5).
 - Relays can drop, delay or withhold envelopes. Use several relays.

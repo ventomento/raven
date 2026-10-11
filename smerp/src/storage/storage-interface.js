@@ -327,12 +327,15 @@ Relay Record
 
 relayUrl          (primary key)
 relayType
-relayPkh
+relayPkh          (optional; learned from x-smerp-relay-pkh responses)
+relayToken        (optional; set by the user, sent as a bearer token)
 disabled          (set by the user only; sync skips the relay)
 cursor            (sync-owned)
 lastSuccessAt     (sync-owned)
 lastFailureAt     (sync-owned)
 failureCount      (sync-owned; consecutive failures, drives backoff)
+lastFailureReason (sync-owned; why the last request failed, null after
+                   a success. May quote the relay: untrusted text)
 
 
 Envelope Record

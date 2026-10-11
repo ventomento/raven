@@ -20,9 +20,10 @@ const STYLESHEET_URL = new URL("./styles/webui.css", import.meta.url);
  *
  * recipientPublicKeyHex: opens the Send view with this recipient filled
  * in instead of the chat list.
- * relays: [{ relayUrl, relayType, relayPkh }] added to storage on start
+ * relays: [{ relayUrl, relayType, relayPkh?, relayToken? }] added to storage on start
  * unless a relay with that relayUrl is already stored. Stored relays are
  * left untouched, so the user's edits (e.g. disabling one) survive.
+ * relayPkh is optional: the client learns it from the relay.
  */
 export class WebUi {
 
@@ -137,7 +138,7 @@ function parseKey(value, name) {
 
 // Same normalization as the Add relay form, so a seeded relay and one
 // typed in by hand get the same relayUrl key.
-function normalizeRelay({ relayUrl, relayType = "relay", relayPkh }) {
+function normalizeRelay({ relayUrl, relayType = "relay", relayPkh, relayToken }) {
 
   insist(relayUrl, "string");
   insist(relayType, "string");
@@ -145,6 +146,7 @@ function normalizeRelay({ relayUrl, relayType = "relay", relayPkh }) {
   return {
     relayUrl: relayUrl.trim().replace(/\/+$/, ""),
     relayType,
-    relayPkh: parseKey(relayPkh, "relayPkh"),
+    ...(relayPkh != null && { relayPkh: parseKey(relayPkh, "relayPkh") }),
+    ...(relayToken != null && { relayToken: insist(relayToken, "string") }),
   };
 }

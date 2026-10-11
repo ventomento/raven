@@ -3,74 +3,67 @@ SMERP Authentication Protocol v1
 1. Overview
 ===========
 
-SMERP Authentication provides proof-of-possession of a client's long-term
-X25519 private key.
+Every request to a SMERP relay is signed. The signature proves that the
+sender of the request holds the private key of an X25519 identity, and
+covers the whole request: method, target, time and body.
 
-The client and relay each hold an X25519 keypair. Authentication is performed
-by deriving a shared secret and creating an HMAC signature over a timestamp.
+The client and the relay each hold an X25519 keypair. Both derive the
+same HMAC key from their shared secret, and the client sends an HMAC of
+the request. Verification is stateless: one request, no handshake.
 
-The protocol is stateless and consists of a single HTTP request.
+The relay's public key is not configured on the client: the relay
+announces it on every response (section 6) and may replace it at any
+time.
 
-Usage:
-
-    GET /envelopes?pkh=<client_pkh>&cursor=<cursor>
-
-Only GET /envelopes is authenticated. POST /envelopes carries an opaque
-encrypted envelope and requires no authentication.
+A relay MAY also require an access token (section 8). Signing is part
+of the protocol; tokens are relay policy.
 
 
 2. Terminology
 ==============
 
 Client
-    Entity requesting authentication.
+    Entity sending a request: a messaging client, or a relay
+    forwarding envelopes to a peer.
 
 Relay
-    Entity verifying authentication.
+    Entity verifying the request.
+
+Signer
+    The X25519 identity whose key signs a request.
 
 PKH
     Hex-encoded 32-byte X25519 public key (64 hex characters).
     Implementations MUST accept an optional "0x" prefix and hex digits
     in either case.
 
+Target
+    The request's path and query, relative to the relay URL, exactly as
+    sent. For a relay at https://host/smerp, a request to
+    https://host/smerp/envelopes?cursor=12 has the target
+    "/envelopes?cursor=12".
+
 Timestamp
     Unix timestamp in seconds encoded as a decimal UTF-8 string.
-
-Signature
-    Hex-encoded HMAC-SHA256 output.
 
 
 3. Cryptographic Primitives
 ===========================
 
-Shared secret:
-
-    shared_secret =
-        X25519(
-            private_key,
-            public_key
-        )
+    shared_secret = X25519(private_key, public_key)
+    hmac_key      = SHA256(shared_secret)
+    body_hash     = SHA256(body)
+    canonical     = METHOD "\n" target "\n" timestamp "\n" hex(body_hash)
+    signature     = HMAC-SHA256(hmac_key, UTF8(canonical))
 
 An all-zero shared_secret (produced by a low-order public key) MUST be
 rejected.
 
-Proof key:
+METHOD is the HTTP method in uppercase. A request without a body
+hashes zero bytes. Hex is lowercase. All cryptographic operations use
+raw bytes; hex is only used for transport.
 
-    proof_key =
-        SHA256(shared_secret)
-
-Signature:
-
-    signature =
-        HMAC-SHA256(
-            proof_key,
-            UTF8(timestamp)
-        )
-
-All cryptographic operations use raw bytes.
-Hex encoding is only used for transport.
-
-The proof key is derived without domain separation: it is the same
+The HMAC key is derived without domain separation: it is the same
 SHA256(shared_secret) that SMEP uses as the AES-GCM key for envelopes
 between the same two keypairs.
 
@@ -78,173 +71,170 @@ between the same two keypairs.
 4. Timestamp Rules
 ==================
 
-The timestamp MUST:
+The timestamp MUST be the signer's current Unix time in seconds, as a
+base-10 decimal string with no leading zeros.
 
-- be a Unix timestamp in seconds
-- be represented as a base-10 decimal string
-- contain no leading zeros
-- be encoded as UTF-8 before signing
+The relay defines the accepted clock-skew window and MUST reject
+requests outside it. The reference relay accepts timestamps within 300
+seconds of its clock, in either direction.
 
-
-Example:
-
-    1750201234
-
-
-The relay defines the accepted clock-skew window.
-Requests outside this window MUST be rejected.
-
-The relay signs the x-smerp-timestamp header value exactly as received.
-It need not enforce the formatting rules above: a timestamp formatted
-differently from what the client signed fails verification.
-
-The reference relay accepts timestamps within 300 seconds of its clock,
-in either direction.
+The relay signs the timestamp exactly as received. It need not enforce
+the formatting rules: a timestamp formatted differently from what the
+client signed fails verification.
 
 
-5. Client Authentication
-========================
+5. Signing a Request
+====================
 
-The client computes:
+The client computes, with relay_public_key as learned in section 7:
 
-    shared_secret =
-        X25519(
-            client_private_key,
-            relay_public_key
-        )
+    shared_secret = X25519(signer_private_key, relay_public_key)
 
+and the signature of section 3, and sends:
 
-    proof_key =
-        SHA256(shared_secret)
-
-
-    signature =
-        HMAC-SHA256(
-            proof_key,
-            UTF8(timestamp)
-        )
-
-
-The client sends:
-
-    GET /envelopes?pkh=<client_pkh>&cursor=<cursor>
-
-
-Query parameters:
-
-    pkh
-        The client's own public key hex. It identifies both the
-        mailbox being read and the key the relay verifies against.
-
-    cursor
-        Paging position. Not part of authentication.
-
-
-Headers:
-
+    x-smerp-pkh:       <signer pkh>
     x-smerp-timestamp: <timestamp>
-    x-smerp-signature: <signature_hex>
+    x-smerp-signature: <lowercase hex of signature>
 
+Every request to a relay endpoint MUST carry these headers.
 
-Requirements:
-
-    x-smerp-timestamp
-        MUST contain the signed timestamp.
-
-    x-smerp-signature
-        MUST contain lowercase hexadecimal encoding of
-        the HMAC-SHA256 output.
-
-
-The proof key depends only on the two keypairs, so the client MAY derive
+The HMAC key depends only on the two keypairs, so the client MAY derive
 it once per relay and reuse it.
 
+Who may sign what is relay policy, except where an endpoint defines it
+(smerp/smerp_rfc.txt):
 
-6. Relay Verification
+    GET /envelopes     the signer's own mailbox is served
+    POST /envelopes    any signer the relay accepts; typically the
+                       envelope's sender or recipient, or a known peer
+                       relay forwarding it
+
+A client that has not learned the relay's key yet sends the request
+unsigned. The relay answers 401 with its key, and the client signs and
+retries (section 7).
+
+
+6. Relay Key
+============
+
+The relay MUST send its current public key on every response, whatever
+the status, including 401 and 429:
+
+    x-smerp-relay-pkh: <relay_pkh>
+
+relay_pkh is the lowercase hex of the relay's 32-byte X25519 public
+key, without a "0x" prefix.
+
+The relay keypair is the relay's own business. A relay MAY generate it
+at startup and MAY replace it at any time. All servers answering for
+one relay URL MUST use the same keypair at any given time; otherwise
+responses alternate between keys and clients keep failing
+authentication.
+
+The header does not authenticate the relay. A client that adopts a key
+from a spoofed response only produces signatures bound to that key,
+which are useless at the real relay. TLS protects against substitution.
+
+
+7. Client Key Handling
+======================
+
+The client stores the relay_pkh per relay as a cache, not as
+configuration.
+
+- On a response carrying a valid x-smerp-relay-pkh that differs from
+  the stored one, the client replaces the stored one.
+- A response without the header, or with a value that is not 64 hex
+  digits, leaves the stored key unchanged. Responses from proxies and
+  load balancers usually lack it.
+- On a 401 whose x-smerp-relay-pkh differs from the key the request
+  was signed with (or the request was unsigned), the client retries the
+  request once, signed with the new key. If that also fails, or the key
+  is unchanged, the request has failed. The single retry prevents loops
+  against a relay that keeps changing keys.
+
+This covers both first contact and key rotation. The client SHOULD
+persist the stored key, so first contact costs one 401 per relay, not
+one per start.
+
+
+8. Access Tokens
+================
+
+A relay MAY require an access token, for example an archive that takes
+payment for storage. How a token is obtained is out of scope: the
+relay's operator issues it, and the user adds it to that relay's
+configuration in the client.
+
+The client sends the token on every request to that relay:
+
+    Authorization: Bearer <token>
+
+The token is opaque to the client. It is sent only to the relay that
+issued it and is never forwarded to other relays. It is not covered by
+the signature; TLS SHOULD protect it.
+
+A relay MAY bind a token to the signer's pkh, so that a leaked token is
+useless without the matching private key.
+
+
+9. Relay Verification
 =====================
-
-The relay extracts:
-
-    pkh        (client public key hex, from the pkh query parameter)
-    timestamp  (x-smerp-timestamp header)
-    signature  (x-smerp-signature header)
-
-
-If any of these is missing, authentication fails.
-
 
 The relay MUST:
 
+1. Read x-smerp-pkh, x-smerp-timestamp and x-smerp-signature. If any
+   is missing, or the pkh is not 64 hex digits, fail.
 
-1. Validate the timestamp.
+2. Check the timestamp (section 4).
 
-   The timestamp MUST parse as an integer.
-   Requests outside the accepted clock-skew window MUST be rejected.
+3. Compute the expected signature (section 3) from:
 
+    shared_secret = X25519(relay_private_key, signer_pkh)
 
-2. Compute:
+   and the method, target and body of the request as received.
 
-    shared_secret =
-        X25519(
-            relay_private_key,
-            client_pkh
-        )
+4. Compare it with the received signature using a constant-time
+   comparison.
 
+5. Apply its own policy: which signers it accepts, and whether a valid
+   access token is required.
 
-    proof_key =
-        SHA256(shared_secret)
-
-
-    expected_signature =
-        HMAC-SHA256(
-            proof_key,
-            UTF8(timestamp)
-        )
-
-
-3. Compare:
-
-    expected_signature
-
-against:
-
-    received_signature
-
-
-The comparison MUST use a constant-time comparison function.
-
-
-If the signatures match, authentication succeeds.
-Otherwise authentication fails.
-
-
-On failure the relay responds:
+Any failure is answered with:
 
     401 Unauthorized
-    x-smerp-unauthorized: <reason>
+    x-smerp-relay-pkh: <relay_pkh>
+    x-smerp-unauthorized: <reason>        (optional)
 
-The client treats any 401 as an authentication failure for that relay.
+401 covers every refusal: a missing or wrong signature, a timestamp out
+of window, a missing or invalid token, a signer the relay does not
+accept. The reason is free text for display and MUST NOT be relied on
+by clients. The client treats any 401 as a failed request to that
+relay, after the retry of section 7.
+
+Relays that serve browser clients MUST allow the x-smerp-pkh,
+x-smerp-timestamp, x-smerp-signature and Authorization request headers
+and expose x-smerp-relay-pkh and x-smerp-unauthorized via CORS.
 
 
-7. Security Properties
-======================
+10. Security Properties
+=======================
 
 Provides:
 
-- Proof-of-possession of the client's X25519 private key.
+- Proof-of-possession of the signer's X25519 private key.
+- Request binding: method, target, timestamp and body are signed, so a
+  signature cannot be reused for another request.
+- Replay resistance bounded by the timestamp window. A replay within it
+  repeats the identical request: the same page of a mailbox, or an
+  envelope the relay already holds.
 - Stateless relay verification.
-- Replay resistance bounded by the timestamp acceptance window.
-
 
 Does not provide:
 
-- Single-use authentication proofs.
-- Protection against replay within the accepted timestamp window.
-- Forward secrecy for authentication requests.
-- Request binding. The signature covers only the timestamp, not the
-  method, path, pkh or cursor. A captured request can be replayed within
-  the window with any cursor. The pkh is bound only implicitly: the proof
-  key is specific to the client-relay key pair.
-
+- Single-use signatures.
+- Forward secrecy for requests.
+- Authentication of the relay to the client (section 6).
+- Protection of the access token beyond what TLS gives.
 
 TLS SHOULD be used for transport protection.

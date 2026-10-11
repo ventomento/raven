@@ -3,17 +3,19 @@ import { insist } from "../../../smep/src/util/util.js";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
 import { EnvelopeStream } from "./envelope-stream.js";
 import { RealClock, RelayRateLimits } from "./rate-limiter.js";
-import { Authenticator } from "../auth/authenticator.js";
+import { RelayRequester } from "../request/relay-requester.js";
 import { IngestOutcome } from "../ingest/ingestor.js";
 import { EventTypes } from "../event/event-bus.js";
 
 // Relay record fields owned by sync. Sync writes back only these, so a
-// user's relaysPut during a sync (disabled, relayPkh, ...) is kept.
+// user's relaysPut during a sync (disabled, relayToken, ...) is kept.
+// A learned relayPkh is saved separately, by saveRelayPkh.
 const SYNC_FIELDS = Object.freeze([
     "cursor",
     "failureCount",
     "lastSuccessAt",
     "lastFailureAt",
+    "lastFailureReason",
 ]);
 
 export class SyncEngine {
@@ -51,6 +53,19 @@ export class SyncEngine {
         pkh,
         clock = RealClock,
         rateLimits = new RelayRateLimits({ clock }),
+        // Serializes relay record writes with the client's relaysPut and
+        // relaysDelete, so a delete cannot land between the get and put
+        // of saveSyncState and be undone.
+        relayWriteLock = new ConcurrencyLimiter(1),
+        // Shared with the client's sends. Defaults to one that saves
+        // learned relay keys here.
+        requester = new RelayRequester({
+            identity,
+            transporter,
+            logger,
+            clock,
+            onRelayPkh: (relayUrl, relayPkh) => this.saveRelayPkh(relayUrl, relayPkh),
+        }),
     }) {
 
         insist(identity, PrivateIdentity);
@@ -61,6 +76,8 @@ export class SyncEngine {
         insist(eventBus);
         insist(pkh);
         insist(rateLimits, RelayRateLimits);
+        insist(relayWriteLock, ConcurrencyLimiter);
+        insist(requester, RelayRequester);
 
         this.identity = identity;
         this.transporter = transporter;
@@ -71,10 +88,9 @@ export class SyncEngine {
         this.pkh = pkh;
         this.clock = clock;
         this.rateLimits = rateLimits;
+        this.relayWriteLock = relayWriteLock;
+        this.requester = requester;
         this.concurrencyLimiter = new ConcurrencyLimiter(SyncEngine.DEFAULTS.concurrency);
-
-        // relayPkh -> Authenticator, so the HMAC key is derived once.
-        this.authenticators = new Map();
     }
 
     async syncRelays(relays) {
@@ -126,16 +142,18 @@ export class SyncEngine {
 
     async syncRelay(relay) {
 
-        const before = { cursor: relay.cursor, failureCount: relay.failureCount };
+        const before = {
+            cursor: relay.cursor,
+            failureCount: relay.failureCount,
+            lastFailureReason: relay.lastFailureReason,
+        };
 
         const envelopeStream =
             new EnvelopeStream({
-                identity: this.identity,
                 relay,
-                transporter: this.transporter,
+                requester: this.requester,
                 logger: this.logger,
                 clock: this.clock,
-                authenticator: this.authenticatorFor(relay),
             });
 
         const rateLimiter = this.rateLimits.for(relay.relayUrl);
@@ -193,7 +211,8 @@ export class SyncEngine {
 
         if (
             stored.cursor !== before.cursor ||
-            stored.failureCount !== before.failureCount
+            stored.failureCount !== before.failureCount ||
+            stored.lastFailureReason !== before.lastFailureReason
         ) {
             this.eventBus.publish({
                 type: EventTypes.RELAY,
@@ -233,7 +252,13 @@ export class SyncEngine {
 
     // Merge sync fields onto the current stored record. Returns the
     // stored record, or null if the relay was deleted.
-    async saveSyncState(relay) {
+    saveSyncState(relay) {
+        return this.relayWriteLock.run(
+            () => this.#saveSyncState(relay)
+        );
+    }
+
+    async #saveSyncState(relay) {
 
         const [stored] = await this.storage.relaysGet({ relayUrl: relay.relayUrl });
 
@@ -254,21 +279,34 @@ export class SyncEngine {
         return merged;
     }
 
-    authenticatorFor(relay) {
+    /**
+     * Save a relay key learned from a response (sync or send) onto the
+     * stored record and publish it. Does nothing if the relay was
+     * deleted or already has that key.
+     */
+    async saveRelayPkh(relayUrl, relayPkh) {
 
-        let authenticator = this.authenticators.get(relay.relayPkh);
+        const stored = await this.relayWriteLock.run(async () => {
 
-        if (!authenticator) {
+            const [current] = await this.storage.relaysGet({ relayUrl });
 
-            authenticator = new Authenticator({
-                identity: this.identity,
-                relay: { relayPkh: relay.relayPkh },
-                clock: this.clock,
+            if (!current || current.relayPkh === relayPkh) {
+                return null;
+            }
+
+            const updated = { ...current, relayPkh };
+
+            await this.storage.relaysPut(updated);
+
+            return updated;
+        });
+
+        if (stored) {
+            this.eventBus.publish({
+                type: EventTypes.RELAY,
+                relay: stored,
+                deleted: false,
             });
-
-            this.authenticators.set(relay.relayPkh, authenticator);
         }
-
-        return authenticator;
     }
 }

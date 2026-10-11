@@ -84,7 +84,6 @@ async function startRelay(port) {
     relay: {
       relayUrl: `http://127.0.0.1:${port}`,
       relayType: "archive",
-      relayPkh: SmerpServer.PUBLIC_KEY_HEX,
     },
   };
 }

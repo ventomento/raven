@@ -205,6 +205,7 @@
 
 .webui input[type="text"],
 .webui input[type="url"],
+.webui input[type="password"],
 .webui select,
 .webui textarea {
   width: 100%;
@@ -371,6 +372,15 @@
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.webui .token-editor summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.webui .token-editor form {
+  margin-top: 6px;
 }
 
 .webui .relay-url {

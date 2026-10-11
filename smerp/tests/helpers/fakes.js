@@ -84,6 +84,8 @@ export class FakeRelays {
             relayUrl: parsed.origin,
             method: options.method ?? "GET",
             cursor: Number(parsed.searchParams.get("cursor")),
+            signed: "x-smerp-signature" in (options.headers ?? {}),
+            authorization: options.headers?.authorization,
             at: this.clock.now(),
         };
 

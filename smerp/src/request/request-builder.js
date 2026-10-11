@@ -1,24 +1,26 @@
+// Requests to a relay as { method, url, target, body?, headers? }.
+// target is the path and query relative to relayUrl; it is what gets
+// signed, so it is built once together with the url.
 
 export class RequestBuilder {
 
-    static urlEnvelopesGet(relay, pkh){
-        return `${relay.relayUrl}/envelopes?pkh=${pkh}` + `&cursor=${relay.cursor}`;
+    static envelopesGet(relay) {
+
+        const target = `/envelopes?cursor=${relay.cursor ?? 0}`;
+
+        return { method: "GET", url: `${relay.relayUrl}${target}`, target };
     }
 
-    static urlEnvelopesPost(relay){
-        return `${relay.relayUrl}/envelopes`;
-    }
+    static envelopesPost(relay, envelopeBytes) {
 
-    static optionsEnvelopesPost(envelopeBytes){
-        return {...postOptions, body: envelopeBytes};
-    }
+        const target = "/envelopes";
 
+        return {
+            method: "POST",
+            url: `${relay.relayUrl}${target}`,
+            target,
+            body: envelopeBytes,
+            headers: { "content-type": "application/octet-stream" },
+        };
+    }
 }
-
-const postOptions = {
-    method: "POST",
-    headers: {
-    "Content-Type":
-        "application/octet-stream",
-    },
-}; 

@@ -20,9 +20,9 @@ import { VirtualClock, FakeRelays } from "./helpers/fakes.js";
 // Cleanup is registered with t.after so a failed assertion does not
 // leave a server or client running and hang the test process.
 
-async function startRelay(t) {
+async function startRelay(t, options) {
 
-    const server = new SmerpServer();
+    const server = new SmerpServer(options);
     await server.listen(0, "127.0.0.1");
     t.after(() => server.close());
 
@@ -31,7 +31,6 @@ async function startRelay(t) {
         relay: {
             relayUrl: `http://127.0.0.1:${server.server.address().port}`,
             relayType: "archive",
-            relayPkh: SmerpServer.PUBLIC_KEY_HEX,
         },
     };
 }
@@ -105,7 +104,6 @@ test("relays: put, get, delete with events", async (t) => {
     const relay = {
         relayUrl: "http://127.0.0.1:1",
         relayType: "archive",
-        relayPkh: SmerpServer.PUBLIC_KEY_HEX,
     };
 
     const putEvent = nextEvent(client, EventTypes.RELAY);
@@ -209,6 +207,26 @@ test("text and bytes round-trip between two clients through a relay", async (t) 
 
 });
 
+test("the client learns the relay pkh and recovers when the relay rotates it", async (t) => {
+
+    const { server, relay } = await startRelay(t);
+    const client = await startClient(t);
+
+    await client.relaysPut(relay);
+    await client.sync();
+
+    let [stored] = await client.relaysGet();
+    assert.equal(stored.relayPkh, await server.relayPkh());
+    assert.equal(stored.failureCount, 0);
+
+    const rotated = await server.rotateKey();
+    await client.sync();
+
+    [stored] = await client.relaysGet();
+    assert.equal(stored.relayPkh, rotated);
+    assert.equal(stored.failureCount, 0);
+});
+
 test("an envelope held by several relays is stored and counted once", async (t) => {
 
     const one = await startRelay(t);
@@ -283,7 +301,7 @@ async function startFakeClient(t, { relayUrls = [], storage = new StorageMemory(
     const relays = new FakeRelays(clock);
 
     for (const relayUrl of relayUrls) {
-        await storage.relaysPut({ relayUrl, relayType: "archive", relayPkh: SmerpServer.PUBLIC_KEY_HEX });
+        await storage.relaysPut({ relayUrl, relayType: "archive" });
     }
 
     const client = new SmerpClient({
@@ -305,7 +323,7 @@ test("start re-enables relays that an older version disabled after failures", as
 
     const storage = new StorageMemory();
     await storage.init();
-    const base = { relayType: "archive", relayPkh: SmerpServer.PUBLIC_KEY_HEX };
+    const base = { relayType: "archive" };
     await storage.relaysPut({ ...base, relayUrl: "http://legacy.test", disabled: true, failureCount: 3 });
     await storage.relaysPut({ ...base, relayUrl: "http://user.test", disabled: true, failureCount: 0 });
 
@@ -364,4 +382,96 @@ test("a 429 on send pauses that relay, later sends fail fast for it", async (t) 
 
     const third = await client.send(client.publicKeyHex, "three");
     assert.equal(third.delivered.length, 2);
+});
+
+// =====================================================
+// Relay auth: keys learned on send, access tokens
+// =====================================================
+
+const RELAY_PKH = "ab".repeat(32);
+
+test("a POST to a relay with an unknown key is retried signed and the key is saved", async (t) => {
+
+    const { client, relays } = await startFakeClient(t);
+
+    // Only POSTs announce the key, so the sync started by relaysPut
+    // cannot learn it first.
+    relays.hook = (request) => {
+        if (request.method === "GET") {
+            return { status: 204, headers: {} };
+        }
+        return request.signed
+            ? { status: 200, headers: { "x-smerp-relay-pkh": RELAY_PKH } }
+            : { status: 401, headers: { "x-smerp-relay-pkh": RELAY_PKH } };
+    };
+
+    await client.relaysPut({ relayUrl: "http://new.test", relayType: "relay" });
+
+    const learned = nextEvent(client, EventTypes.RELAY, e => e.relay.relayPkh === RELAY_PKH);
+
+    const sent = await client.send(client.publicKeyHex, "hi");
+
+    assert.deepEqual(sent.delivered, ["http://new.test"]);
+    assert.deepEqual(
+        relays.requests.filter(r => r.method === "POST").map(r => r.signed),
+        [false, true]
+    );
+
+    await learned;
+    const [stored] = await client.relaysGet({ relayUrl: "http://new.test" });
+    assert.equal(stored.relayPkh, RELAY_PKH);
+});
+
+test("a relay token is sent on GET and POST to its own relay only", async (t) => {
+
+    const { client, relays } = await startFakeClient(t);
+
+    await client.relaysPut({ relayUrl: "http://paid.test", relayType: "archive", relayToken: "secret" });
+    await client.relaysPut({ relayUrl: "http://free.test", relayType: "relay" });
+
+    await client.send(client.publicKeyHex, "hi");
+    await client.sync();
+
+    const tokensFor = (relayUrl, method) => relays.requests
+        .filter(r => r.relayUrl === relayUrl && r.method === method)
+        .map(r => r.authorization);
+
+    for (const method of ["GET", "POST"]) {
+        assert.ok(tokensFor("http://paid.test", method).length > 0, method);
+        assert.ok(tokensFor("http://paid.test", method).every(a => a === "Bearer secret"), method);
+        assert.ok(tokensFor("http://free.test", method).every(a => a === undefined), method);
+    }
+});
+
+test("a 401 on send reports the relay's reason", async (t) => {
+
+    const { client, relays } = await startFakeClient(t, { relayUrls: ["http://strict.test"] });
+
+    relays.hook = (request) => request.method === "POST"
+        ? { status: 401, headers: { "x-smerp-unauthorized": "subscription expired" } }
+        : null;
+
+    const error = await client.send(client.publicKeyHex, "hi").catch(e => e);
+
+    assert.ok(error instanceof DispatchError);
+    assert.match(error.failed[0].error.message, /401 \(subscription expired\)/);
+});
+
+test("with a token, a client can use a token-gated relay end to end", async (t) => {
+
+    const { relay } = await startRelay(t, { tokens: new Set(["secret"]) });
+
+    const alice = await startClient(t, { ...relay, relayToken: "secret" });
+    const mallory = await startClient(t, relay);
+
+    await alice.send(alice.publicKeyHex, "note to self");
+    await alice.sync();
+    assert.equal((await alice.envelopesGet()).length, 1);
+
+    await assert.rejects(mallory.send(alice.publicKeyHex, "hi"), DispatchError);
+
+    await mallory.sync();
+    const [stored] = await mallory.relaysGet();
+    assert.equal(stored.failureCount > 0, true);
+    assert.match(stored.lastFailureReason, /access token/);
 });

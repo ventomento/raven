@@ -8,7 +8,6 @@ import { Ingestor } from "../src/ingest/ingestor.js";
 import { StorageMemory } from "../src/storage/storage-memory.js";
 import { EventBus, EventTypes } from "../src/event/event-bus.js";
 import { LightLog } from "../src/log/light-log.js";
-import { SmerpServer } from "../src/server/index.js";
 import { VirtualClock, FakeRelays, tick } from "./helpers/fakes.js";
 
 const RELAY_A = "http://relay-a.test";
@@ -41,7 +40,6 @@ async function setup({ relayUrls = [RELAY_A] } = {}) {
         await storage.relaysPut({
             relayUrl,
             relayType: "archive",
-            relayPkh: SmerpServer.PUBLIC_KEY_HEX,
         });
     }
 
@@ -180,19 +178,100 @@ test("a non-binary 200 body is skipped and counts against the relay", async () =
 // Relay health and backoff
 // =====================================================
 
-test("401 counts as a relay failure", async () => {
+test("401 counts as a relay failure and keeps the relay's reason until a success", async () => {
 
-    const { relays, sync, relay, eventsOf } = await setup();
+    const { relays, sync, relay, eventsOf, clock } = await setup();
 
     relays.hook = () => ({
         status: 401,
-        headers: { "x-smerp-unauthorized": "1" },
+        headers: { "x-smerp-unauthorized": "token expired" },
     });
 
     await sync();
 
     assert.equal((await relay()).failureCount, 1);
+    assert.equal((await relay()).lastFailureReason, "unauthorized: token expired");
     assert.match(eventsOf(EventTypes.ERROR)[0].error.message, /unauthorized/);
+
+    relays.hook = null;
+    clock.advance(SyncEngine.backoffMs(1));
+    await sync();
+
+    assert.equal((await relay()).failureCount, 0);
+    assert.equal((await relay()).lastFailureReason, null);
+});
+
+// =====================================================
+// Relay pkh discovery
+// =====================================================
+
+const RELAY_PKH = "ab".repeat(32);
+
+test("an unsigned GET answered by 401 with the relay pkh is retried signed once", async () => {
+
+    const { relays, sync, relay, eventsOf } = await setup();
+
+    relays.hook = (request) => request.signed
+        ? null
+        : { status: 401, headers: { "x-smerp-relay-pkh": RELAY_PKH } };
+
+    await sync();
+
+    assert.deepEqual(relays.requests.map(r => r.signed), [false, true]);
+
+    const stored = await relay();
+    assert.equal(stored.relayPkh, RELAY_PKH);
+    assert.equal(stored.failureCount, 0);
+    assert.equal(eventsOf(EventTypes.RELAY).at(-1).relay.relayPkh, RELAY_PKH);
+});
+
+test("a rotated relay pkh is adopted from a 401 and retried once", async () => {
+
+    const { relays, storage, sync, relay } = await setup();
+
+    await storage.relaysPut({ ...(await relay()), relayPkh: "cd".repeat(32) });
+
+    let calls = 0;
+    relays.hook = () => calls++ === 0
+        ? { status: 401, headers: { "x-smerp-relay-pkh": `0x${RELAY_PKH.toUpperCase()}` } }
+        : { status: 204, headers: { "x-smerp-relay-pkh": RELAY_PKH } };
+
+    await sync();
+
+    assert.equal(relays.requests.length, 2);
+    assert.equal((await relay()).relayPkh, RELAY_PKH);
+    assert.equal((await relay()).failureCount, 0);
+});
+
+test("a 401 carrying the pkh it was signed with is not retried", async () => {
+
+    const { relays, storage, sync, relay } = await setup();
+
+    await storage.relaysPut({ ...(await relay()), relayPkh: RELAY_PKH });
+
+    relays.hook = () => ({ status: 401, headers: { "x-smerp-relay-pkh": RELAY_PKH } });
+
+    await sync();
+
+    assert.equal(relays.requests.length, 1);
+    assert.equal((await relay()).failureCount, 1);
+});
+
+test("a missing or malformed relay pkh header keeps the known pkh", async () => {
+
+    const { relays, storage, sync, relay } = await setup();
+
+    await storage.relaysPut({ ...(await relay()), relayPkh: RELAY_PKH });
+
+    let calls = 0;
+    relays.hook = () => calls++ === 0
+        ? { status: 204, headers: { "x-smerp-relay-pkh": "zz" } }
+        : { status: 204, headers: {} };
+
+    await sync();
+    await sync();
+
+    assert.equal((await relay()).relayPkh, RELAY_PKH);
 });
 
 test("network errors count as failures and back off exponentially", async () => {
