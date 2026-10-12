@@ -3,7 +3,7 @@
 import { BinaryWriter } from "./binary.js";
 import { EnvelopeLayout } from "./layout.js";
 
-const { HEADER_SIZE, SIZES } = EnvelopeLayout;
+const { HEADER_SIZE, MAX_SIZE, SIZES } = EnvelopeLayout;
 
 // Writes an envelope into one buffer in two steps, so the header exists as
 // bytes before encryption and is serialized only once:
@@ -16,17 +16,28 @@ export class EnvelopeWriter {
   #writer;
 
   // Byte size of an envelope whose ciphertext (without tag) is ciphertextLength.
+  // Throws if that envelope would exceed MAX_SIZE.
   static size(ciphertextLength) {
     if (!Number.isInteger(ciphertextLength) || ciphertextLength < 0) {
       throw new Error("ciphertextLength must be a non-negative integer");
     }
 
-    return HEADER_SIZE + SIZES.MIN_PAYLOAD + ciphertextLength;
+    const byteSize = HEADER_SIZE + SIZES.MIN_PAYLOAD + ciphertextLength;
+
+    if (byteSize > MAX_SIZE) {
+      throw new Error("Envelope too large");
+    }
+
+    return byteSize;
   }
 
   constructor(byteSize) {
     if (!Number.isInteger(byteSize) || byteSize < HEADER_SIZE + SIZES.MIN_PAYLOAD) {
       throw new Error("byteSize too small for an envelope");
+    }
+
+    if (byteSize > MAX_SIZE) {
+      throw new Error("Envelope too large");
     }
 
     this.#writer = new BinaryWriter(byteSize);

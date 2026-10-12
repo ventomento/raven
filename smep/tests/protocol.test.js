@@ -230,6 +230,39 @@ test("binary payload roundtrip", async () => {
 });
 
 // ============================================================
+// SIZE LIMIT
+// ============================================================
+
+// Largest plaintext: 4 MiB minus header, iv and tag.
+const MAX_PLAINTEXT =
+  EnvelopeLayout.MAX_SIZE - EnvelopeLayout.HEADER_SIZE - EnvelopeLayout.SIZES.MIN_PAYLOAD;
+
+test("encrypt accepts the largest plaintext and rejects one byte more", async () => {
+  const alice = await PrivateIdentity.generate();
+  const bob = await PrivateIdentity.generate();
+  const recipient = new PublicIdentity(bob.publicKey);
+
+  const envelopeBytes = await encrypt({
+    sender: alice,
+    recipient,
+    plaintext: new Uint8Array(MAX_PLAINTEXT),
+    contentType: ContentTypes.FILE,
+  });
+
+  assert.equal(envelopeBytes.byteLength, EnvelopeLayout.MAX_SIZE);
+
+  await assert.rejects(
+    encrypt({
+      sender: alice,
+      recipient,
+      plaintext: new Uint8Array(MAX_PLAINTEXT + 1),
+      contentType: ContentTypes.FILE,
+    }),
+    /too large/
+  );
+});
+
+// ============================================================
 // TAMPERING TESTS
 // ============================================================
 

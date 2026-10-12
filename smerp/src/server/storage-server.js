@@ -96,46 +96,20 @@ export class StorageServer {
   // QUERY ENVELOPES
   // ============================================================
 
+  // Records of mailbox pkh after id, in id order. Without pkh, every
+  // record.
   envelopesGet(options = {}) {
     const { pkh = null, id = 0 } = options;
-
-    /*
-    if (typeof pkh !== "string") {
-      throw new Error(
-        "pkh must be string"
-      );
-    }
-
-    if (!Number.isInteger(id)) {
-      throw new Error(
-        "id must be integer"
-      );
-    }*/
 
     if (!pkh) {
       return this.records;
     }
 
-    /*
-    return this.records.filter(
-      (record) =>
-        record.id > id &&
-        (
-          record.spkh === pkh ||
-          record.rpkh === pkh
-        )
-    );*/
-
-    // Find the next record (smallest id > current id)
-    const nextRecord = this.records
-      .filter((record) =>
-        record.id > id &&
-        (record.spkh === pkh || record.rpkh === pkh)
-      )
-      .sort((a, b) => a.id - b.id)   // sort ascending by id
-      [0];                           // take only the first one (the next)
-
-    return nextRecord ? [nextRecord] : [];   // ← Always return array!
+    // records is append-only, so already in id order.
+    return this.records.filter((record) =>
+      record.id > id &&
+      (record.spkh === pkh || record.rpkh === pkh)
+    );
   }
 
 }

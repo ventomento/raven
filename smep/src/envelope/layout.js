@@ -9,6 +9,8 @@
 export const EnvelopeLayout = Object.freeze({
   VERSION: 0x02,
   HEADER_SIZE: 94,
+  // Largest total envelope length, header included (4 MiB).
+  MAX_SIZE: 4 * 1024 * 1024,
 
   SIZES: Object.freeze({
     UUID: 16,

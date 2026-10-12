@@ -61,7 +61,9 @@ sender (a client sending) or recipient (a client keeping a copy, e.g.
 on an archive), and the peer relays it federates with (section 5).
 
     200   accepted, including an already-held uuid
-    400   wrong Content-Type, or the body is not a valid envelope
+    400   wrong Content-Type, the body is not a valid envelope, or it
+          is larger than 4 MiB (smep_rfc section 4). A relay MAY reject
+          on Content-Length before reading the body.
     401   refused
     429   throttled
 
@@ -74,25 +76,49 @@ one relay returns 200.
 
     GET /envelopes?cursor=<cursor>
 
-Signed. The mailbox is the signer's: the relay returns the first
-envelope after cursor whose sender or recipient is the signer pkh, so
-clients also receive their own sent envelopes. It returns at most one
-envelope per request.
+Signed. The mailbox is the signer's: the relay returns the envelopes
+after cursor whose sender or recipient is the signer pkh, so clients
+also receive their own sent envelopes.
 
-    200   body: the envelope
-          x-smerp-cursor: <cursor after this envelope>
+    200   body: a batch of one or more envelopes (below)
+          x-smerp-cursor: <cursor after the last envelope in the batch>
     204   no envelope after cursor
     401   refused
     429   throttled
 
+A batch packs as many envelopes as fit in one response, so many small
+envelopes are fetched with one request:
+
+    Content-Type: application/octet-stream
+    body  = frame *frame
+    frame = length envelope
+    length: uint32, big-endian, the byte length of envelope
+
+The relay puts the envelopes in cursor order, starting with the first
+one after cursor. It adds envelopes while the sum of their lengths
+stays at most 4 MiB (4,194,304 bytes), framing not counted. A batch
+always holds at least one envelope; since an envelope is at most 4 MiB
+(smep_rfc section 4), the first always fits. A relay SHOULD fill the
+batch as far as it can.
+
+The length prefix delimits each envelope, so a client can skip one
+envelope that fails to parse and still read the rest of the batch.
+
 The cursor is a non-negative integer defined by the relay. It starts at
 0, and each 200 MUST return a cursor greater than the one requested,
 even after the relay deletes envelopes. The client stores a cursor per
-relay. It advances the cursor only once it has processed the envelope,
-and repeats the request until it gets 204.
+relay. It advances the cursor to x-smerp-cursor only once it has
+processed every envelope in the batch, and repeats the request until it
+gets 204.
 
 A cursor that is missing, not an integer, or not greater than the
-requested one is a relay failure.
+requested one is a relay failure; the client keeps its cursor.
+
+A body whose framing is broken (a length that runs past the end of the
+body, a trailing partial length, or no frame at all) is a relay
+failure. If the cursor is valid, the client processes the frames before
+the break and advances the cursor, so a broken batch cannot stall the
+mailbox.
 
 Relays that serve browser clients MUST expose x-smerp-cursor via CORS,
 in addition to the headers listed in auth_rfc section 9.
@@ -123,7 +149,9 @@ Envelopes MUST be stored and forwarded byte-identical.
 
 - Deduplicate by uuid: the same envelope arrives from many relays.
 - Drop an envelope that fails to parse or decrypt, and advance the
-  cursor past it.
+  cursor past it. Only a local failure (storage) keeps the cursor, so
+  the batch is fetched again later.
+- Do not create or upload an envelope larger than 4 MiB.
 - On 429, wait for Retry-After (seconds or HTTP date) before contacting
   that relay again.
 - Sign every request, learn the relay key from x-smerp-relay-pkh, and

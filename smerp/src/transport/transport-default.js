@@ -7,7 +7,7 @@ export class TransportDefault extends TransportInterface {
    * @param {Object} params
    * @param {string} params.url
    * @param {RequestInit} [params.options]
-   * @param {number} [params.timeout=10000]
+   * @param {number} [params.timeout=10000]  whole request, body included
    */
 
   static async transport({
@@ -34,7 +34,8 @@ export class TransportDefault extends TransportInterface {
       });
 
       const status = response.status;
-      const body = await this.getResponseBody(response);
+      // Relay bodies are bytes (envelopes, batches) or empty.
+      const body = new Uint8Array(await response.arrayBuffer());
       const headers = Object.fromEntries(response.headers.entries());
 
       if (status === 200){
@@ -57,25 +58,5 @@ export class TransportDefault extends TransportInterface {
     } finally {
       clearTimeout(timeoutId);
     }
-  }
-
-  static async getResponseBody(response) {
-
-    const contentType = response.headers.get("content-type") || "";
-
-    // JSON
-    if (contentType.includes("application/json")) {
-      return await response.json();
-    }
-
-    // Binary data (images, files, buffers, etc.)
-    if (contentType.includes("application/octet-stream") ||
-        contentType.includes("image/") ||
-        contentType.includes("application/pdf")) {
-      return await response.arrayBuffer();     // or .blob()
-    }
-
-    // Text (HTML, plain text, CSV, etc.)
-    return await response.text();
   }
 }

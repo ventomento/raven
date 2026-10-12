@@ -9,6 +9,12 @@ import { StorageServer } from "./storage-server.js";
 import { bytesToHex } from "../../../smep/src/encoding/hex.js";
 import { PrivateIdentity, readEnvelope } from "../../../smep/src/index.js";
 import { RequestVerifier } from "../auth/request-signer.js";
+import {
+  SmerpHeaders,
+  MAX_ENVELOPE_BYTES,
+  MAX_BATCH_BYTES,
+  encodeBatch,
+} from "../protocol/index.js";
 
 export class SmerpServer {
 
@@ -129,7 +135,7 @@ export class SmerpServer {
 
   #unauthorized(res, reason) {
     res.statusCode = 401;
-    res.setHeader("x-smerp-unauthorized", reason);
+    res.setHeader(SmerpHeaders.unauthorized, reason);
     res.end();
   }
 
@@ -144,7 +150,7 @@ export class SmerpServer {
       // Allow CORS from everywhere
       // -------------------------------------------------
 
-      res.setHeader("x-smerp-relay-pkh", await this.relayPkh());
+      res.setHeader(SmerpHeaders.relayPkh, await this.relayPkh());
 
       res.setHeader("Access-Control-Allow-Origin", "*");
 
@@ -163,9 +169,9 @@ export class SmerpServer {
       ]);
 
       res.setHeader("Access-Control-Expose-Headers", [
-        "x-smerp-cursor",
-        "x-smerp-unauthorized",
-        "x-smerp-relay-pkh",
+        SmerpHeaders.cursor,
+        SmerpHeaders.unauthorized,
+        SmerpHeaders.relayPkh,
       ]);
 
       const url =
@@ -278,6 +284,14 @@ export class SmerpServer {
     ) {
       res.statusCode = 400;
       res.end();
+      return;
+    }
+
+    // Refuse an oversized envelope before reading it.
+    if (Number(req.headers["content-length"]) > MAX_ENVELOPE_BYTES) {
+      res.statusCode = 400;
+      res.end();
+      req.resume();
       return;
     }
 
@@ -402,10 +416,23 @@ export class SmerpServer {
         id,
       });
 
-    // return at most one envelope
-    const record = records[0];
+    // Pack as many envelopes as fit, always at least one.
+    const batch = [];
+    let size = 0;
 
-    if (!record) {
+    for (const record of records) {
+
+      const length = record.eb.byteLength;
+
+      if (batch.length > 0 && size + length > MAX_BATCH_BYTES) {
+        break;
+      }
+
+      batch.push(record);
+      size += length;
+    }
+
+    if (batch.length === 0) {
       res.statusCode = 204;
       res.end();
       return;
@@ -419,11 +446,11 @@ export class SmerpServer {
     );
 
     res.setHeader(
-      "x-smerp-cursor", record.id
+      SmerpHeaders.cursor, batch[batch.length - 1].id
     );
 
     res.end(
-      Buffer.from(record.eb)
+      encodeBatch(batch.map(record => record.eb))
     );
   }
 

@@ -7,7 +7,7 @@ import { EnvelopeWriter } from "../src/envelope/envelope-writer.js";
 import { readEnvelope } from "../src/envelope/envelope-reader.js";
 import { EnvelopeLayout } from "../src/envelope/layout.js";
 
-const { HEADER_SIZE, SIZES } = EnvelopeLayout;
+const { HEADER_SIZE, MAX_SIZE, SIZES } = EnvelopeLayout;
 
 // payload_size offset: 1 + 16 + 32 + 32 + 8 + 1 = 90
 const PAYLOAD_SIZE_OFFSET = 90;
@@ -259,4 +259,33 @@ test("rejects payload smaller than minimum", () => {
   );
 
   assert.throws(() => readEnvelope(buffer), /payload_size too small/);
+});
+
+// ============================================================
+// SIZE LIMIT
+// ============================================================
+
+const MAX_CIPHERTEXT = MAX_SIZE - HEADER_SIZE - SIZES.MIN_PAYLOAD;
+
+test("an envelope of exactly the maximum size is written and read", () => {
+  const buffer = writeEnvelope(createHeaderFields(), createBody(MAX_CIPHERTEXT));
+
+  assert.equal(buffer.byteLength, MAX_SIZE);
+  assert.equal(readEnvelope(buffer).payload_size, MAX_SIZE - HEADER_SIZE);
+});
+
+test("size() and the constructor reject an envelope over the maximum", () => {
+  assert.throws(() => EnvelopeWriter.size(MAX_CIPHERTEXT + 1), /too large/);
+  assert.throws(() => new EnvelopeWriter(MAX_SIZE + 1), /too large/);
+});
+
+test("rejects an envelope over the maximum size", () => {
+  // Consistent header and length, just one byte too large.
+  const buffer = new ArrayBuffer(MAX_SIZE + 1);
+  const bytes = new Uint8Array(buffer);
+
+  bytes[0] = EnvelopeLayout.VERSION;
+  new DataView(buffer).setUint32(PAYLOAD_SIZE_OFFSET, MAX_SIZE + 1 - HEADER_SIZE, false);
+
+  assert.throws(() => readEnvelope(buffer), /too large/);
 });

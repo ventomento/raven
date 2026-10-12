@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { PrivateIdentity, PublicIdentity, encrypt } from "../../smep/src/index.js";
-import { Ingestor, IngestOutcome } from "../src/ingest/ingestor.js";
+import { Ingestor, IngestOutcome } from "../src/inbox/ingestor.js";
+import { EnvelopeOpener } from "../src/inbox/envelope-opener.js";
+import { MessageStore } from "../src/state/message-store.js";
 import { StorageMemory } from "../src/storage/storage-memory.js";
 import { EventBus, EventTypes } from "../src/event/event-bus.js";
 import { LightLog } from "../src/log/light-log.js";
@@ -21,18 +23,19 @@ for (const method of [
     };
 }
 
-async function setup() {
+async function setup({ clock } = {}) {
 
     const alice = await PrivateIdentity.generate();
     const bob = await PrivateIdentity.generate();
     const eventBus = new EventBus();
     const storage = new StorageAsync();
+    const logger = new LightLog();
 
     const ingestor = new Ingestor({
-        storage,
-        identity: bob,
+        opener: new EnvelopeOpener({ identity: bob, publicKeyHex: bob.publicKeyHex }),
+        store: new MessageStore({ storage, eventBus, logger, clock }),
         eventBus,
-        logger: new LightLog(),
+        logger,
     });
 
     const seal = (plaintext) => encrypt({
@@ -41,18 +44,20 @@ async function setup() {
         plaintext,
     });
 
-    return { alice, bob, eventBus, storage, ingestor, seal };
+    const events = [];
+    for (const type of Object.values(EventTypes)) {
+        eventBus.subscribe(type, (event) => events.push(event));
+    }
+
+    return { alice, bob, eventBus, storage, ingestor, seal, events };
 }
 
 // The same envelope fetched from two relays at once, as parallel relay
-// syncs do. Fails intermittently without Ingestor's writeLock.
+// sessions do. Fails intermittently without MessageStore's writeLock.
 test("concurrent ingest of the same envelope stores and counts it once", async () => {
 
-    const { alice, eventBus, storage, ingestor, seal } = await setup();
+    const { alice, storage, ingestor, seal, events } = await setup();
     const bytes = await seal("hi");
-
-    let events = 0;
-    eventBus.subscribe(EventTypes.ENVELOPE, () => events++);
 
     const results = await Promise.all([
         ingestor.ingest(bytes),
@@ -64,7 +69,7 @@ test("concurrent ingest of the same envelope stores and counts it once", async (
         results.map(r => r.outcome).sort(),
         [IngestOutcome.DUPLICATE, IngestOutcome.STORED]
     );
-    assert.equal(events, 1);
+    assert.equal(events.filter(e => e.type === EventTypes.ENVELOPE).length, 1);
 
     const [conversation] = await storage.conversationsGet({ publicKeyHex: alice.publicKeyHex });
     assert.equal(conversation.unreadCount, 1);
@@ -102,12 +107,36 @@ test("malformed and foreign envelopes are rejected, not thrown", async () => {
     assert.deepEqual(await storage.envelopesGet(), []);
 });
 
+test("a batch skips bad frames, keeps order and reports rejections with their source", async () => {
+
+    const { ingestor, storage, seal, events } = await setup();
+
+    const counts = await ingestor.ingestBatch(
+        [await seal("one"), new Uint8Array([1, 2, 3]).buffer, await seal("two")],
+        { relayUrl: "http://relay.test", cursor: 7 }
+    );
+    await new Promise(r => setTimeout(r, 0));
+
+    assert.deepEqual(counts, { stored: 2, duplicate: 0, rejected: 1 });
+
+    const stored = await storage.envelopesGet();
+    const byReceived = stored.sort((a, b) => a.receivedAt - b.receivedAt);
+    assert.deepEqual(byReceived.map(e => e.plaintext), ["one", "two"]);
+
+    const rejected = events.filter(e => e.type === EventTypes.REJECTED);
+    assert.equal(rejected.length, 1);
+    assert.equal(rejected[0].relayUrl, "http://relay.test");
+    assert.equal(rejected[0].cursor, 7);
+    assert.equal(rejected[0].uuid, null);
+});
+
 test("storage failures throw, so the caller retries", async () => {
 
     const { ingestor, storage, seal } = await setup();
     storage.envelopesPut = async () => { throw new Error("QuotaExceededError"); };
 
     await assert.rejects(ingestor.ingest(await seal("hi")), /QuotaExceededError/);
+    await assert.rejects(ingestor.ingestBatch([await seal("hi")]), /QuotaExceededError/);
 });
 
 test("stored times are milliseconds", async () => {
@@ -126,12 +155,8 @@ test("stored times are milliseconds", async () => {
 
 test("receivedAt is strictly increasing within a millisecond", async () => {
 
-    const { storage, seal, eventBus, bob } = await setup();
-
-    const frozen = { now: () => 5000, sleep: async () => {} };
-    const ingestor = new Ingestor({
-        storage, identity: bob, eventBus, logger: new LightLog(), clock: frozen,
-    });
+    const frozen = { now: () => 5000, sleep: async () => {}, timer: () => () => {} };
+    const { ingestor, seal } = await setup({ clock: frozen });
 
     const received = [];
     for (const text of ["one", "two", "three"]) {
@@ -139,4 +164,21 @@ test("receivedAt is strictly increasing within a millisecond", async () => {
     }
 
     assert.deepEqual(received, [5000, 5001, 5002]);
+});
+
+test("own sent envelopes are outbound, read, and keyed by the recipient", async () => {
+
+    const { bob, alice, ingestor } = await setup();
+
+    const sent = await encrypt({
+        sender: bob,
+        recipient: new PublicIdentity(alice.publicKey),
+        plaintext: "from bob",
+    });
+
+    const { envelope } = await ingestor.ingest(sent);
+
+    assert.equal(envelope.direction, "outbound");
+    assert.equal(envelope.read, true);
+    assert.equal(envelope.publicKeyHex, alice.publicKeyHex);
 });

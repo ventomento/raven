@@ -1,27 +1,17 @@
 // src/client/smerp-client.js
 
-import {
-  encrypt,
-  PrivateIdentity,
-  PublicIdentity,
-  readEnvelope,
-} from "../../../smep/src/index.js";
-
+import { PrivateIdentity } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
-import { ContentTypes } from "../../../smep/src/envelope/content-types.js";
-import { bytesToHex } from "../../../smep/src/encoding/hex.js";
 import { StorageMemory } from "../storage/storage-memory.js";
-import { RequestBuilder } from "../request/request-builder.js";
-import { RelayRequester } from "../request/relay-requester.js";
 import { TransportDefault } from "../transport/transport-default.js";
-import { SyncEngine } from "../sync/sync-engine.js";
 import { LightLog } from "../log/light-log.js";
-import { Ingestor } from "../ingest/ingestor.js";
 import { RealClock } from "../lib/clock.js";
-import { RelayRateLimits, retryAfterMs } from "../sync/rate-limiter.js";
-import { ConcurrencyLimiter } from "../lib/concurrency-limiter.js";
+import { RelayRateLimits } from "../relay/rate-limits.js";
+import { RelayPool } from "../relay/relay-pool.js";
 import { EventBus, EventTypes } from "../event/event-bus.js";
-import { NotStartedError, DispatchError } from "./errors.js";
+import { NotStartedError } from "./errors.js";
+import { composeClient } from "./compose.js";
+import { runMigrations } from "./migrations.js";
 
 export const ClientStatus = Object.freeze({
   STOPPED: "stopped",
@@ -42,6 +32,9 @@ export const ClientStatus = Object.freeze({
  *   <resource>Get(options)    query, returns an array (possibly empty)
  *   <resource>Put(record)     insert or replace by primary key
  *   <resource>Delete(options) remove by primary key, returns count
+ *
+ * The client is a facade: the work is done by the modules composeClient
+ * builds on start (MessageStore, RelayDirectory, RelayPool, Sender).
  */
 export class SmerpClient {
 
@@ -53,7 +46,9 @@ export class SmerpClient {
     syncIntervalMs = 60 * 1000,
     // Per relay, shared by fetches and sends. Protects the relay.
     relayRateLimit = RelayRateLimits.DEFAULTS,
-    // { now(): ms, sleep(ms): Promise }. All times are milliseconds.
+    // Requests in flight at once, over all relays. Protects the client.
+    slots = RelayPool.DEFAULTS.slots,
+    // { now(), sleep(ms), timer(ms, fn) }. All times are milliseconds.
     clock = RealClock,
   }) {
 
@@ -64,23 +59,16 @@ export class SmerpClient {
     this.storage = storage;
     this.logger = logger;
     this.syncIntervalMs = syncIntervalMs;
+    this.slots = slots;
     this.clock = clock;
 
     // Outlives start/stop so a restart cannot reset a relay's budget.
     this.rateLimits = new RelayRateLimits({ ...relayRateLimit, clock });
 
-    // Shared with SyncEngine: relay writes from the user and from sync
-    // never interleave.
-    this.relayWriteLock = new ConcurrencyLimiter(1);
-
     this.eventBus = new EventBus();
     this.status = ClientStatus.STOPPED;
     this.publicKeyHex = null;
-    this.ingestor = null;
-    this.syncEngine = null;
-    this.requester = null;
-    this.syncPromise = null;
-    this.syncAgain = false;
+    this.services = null;
     this.syncIntervalId = null;
   }
 
@@ -104,45 +92,26 @@ export class SmerpClient {
         this.identity.publicKeyHex ??
         await this.identity.exportPublicHex();
 
-      this.ingestor =
-        new Ingestor({
-          storage: this.storage,
-          identity: this.identity,
-          eventBus: this.eventBus,
-          logger: this.logger,
-          clock: this.clock,
-        });
+      this.services = composeClient({
+        identity: this.identity,
+        publicKeyHex: this.publicKeyHex,
+        transporter: this.transporter,
+        storage: this.storage,
+        eventBus: this.eventBus,
+        logger: this.logger,
+        clock: this.clock,
+        rateLimits: this.rateLimits,
+        slots: this.slots,
+      });
 
-      // One requester for sync and send, so both sign the same way and a
-      // relay key learned by either is saved through the sync engine.
-      this.requester =
-        new RelayRequester({
-          identity: this.identity,
-          transporter: this.transporter,
-          logger: this.logger,
-          clock: this.clock,
-          onRelayPkh: (relayUrl, relayPkh) =>
-            this.syncEngine.saveRelayPkh(relayUrl, relayPkh),
-        });
+      await runMigrations(this.services);
 
-      this.syncEngine =
-        new SyncEngine({
-          identity: this.identity,
-          transporter: this.transporter,
-          storage: this.storage,
-          ingestor: this.ingestor,
-          logger: this.logger,
-          eventBus: this.eventBus,
-          pkh: this.publicKeyHex,
-          clock: this.clock,
-          rateLimits: this.rateLimits,
-          relayWriteLock: this.relayWriteLock,
-          requester: this.requester,
-        });
-
-      await this.#resetSyncDisabledRelays();
+      for (const relay of await this.services.directory.relaysGet()) {
+        this.services.pool.upsert(relay);
+      }
     }
     catch (error) {
+      this.services = null;
       await this.storage.close();
       this.#setStatus(ClientStatus.STOPPED);
       throw error;
@@ -169,38 +138,25 @@ export class SmerpClient {
     clearInterval(this.syncIntervalId);
     this.syncIntervalId = null;
 
-    await this.syncPromise;
+    await this.services.pool.stop();
     await this.storage.close();
 
-    this.ingestor = null;
-    this.syncEngine = null;
-    this.requester = null;
+    this.services = null;
 
     this.#setStatus(ClientStatus.STOPPED);
   }
 
   /**
-   * Sync all enabled relays now. A call made while a sync is running
-   * schedules one more run after it, so nothing uploaded in between is
-   * missed; the returned promise covers that run too.
+   * Sync all enabled relays now: wakes every relay that is caught up.
+   * The returned promise resolves when the pool has nothing left to do
+   * but wait for relays that are throttled or backing off.
    * Never rejects: failures are published as "error" events.
    */
   sync() {
 
     this.#assertRunning();
 
-    if (this.syncPromise) {
-      this.syncAgain = true;
-      return this.syncPromise;
-    }
-
-    this.syncPromise =
-      this.#syncLoop()
-      .finally(() => {
-        this.syncPromise = null;
-      });
-
-    return this.syncPromise;
+    return this.services.pool.wakeIdle();
   }
 
   // =====================================================
@@ -228,18 +184,15 @@ export class SmerpClient {
 
     this.#assertRunning();
 
-    return this.storage.envelopesGet(options);
+    return this.services.messages.envelopesGet(options);
   }
-
-  // =====================================================
-  // Send
-  // =====================================================
 
   /**
    * Encrypt plaintext for a recipient and upload it to every relay.
    *
    * plaintext: string | Uint8Array (a Node Buffer is a Uint8Array).
    * contentType: defaults to TEXT_UTF8 for strings, UNKNOWN for bytes.
+   * The envelope may be at most 4 MiB.
    *
    * Resolves once at least one relay accepted it, with the envelope
    * uuid and per-relay results. Throws DispatchError if no relay
@@ -249,54 +202,11 @@ export class SmerpClient {
    * sync fetches it back from a relay; send() starts that sync. Watch
    * for the "envelope" event with this uuid.
    */
-  async send(
-    recipientPublicKeyHex,
-    plaintext,
-    {
-      contentType = defaultContentType(plaintext),
-    } = {}
-  ) {
+  async send(recipientPublicKeyHex, plaintext, options = {}) {
 
     this.#assertRunning();
 
-    insist(recipientPublicKeyHex, "string");
-
-    if (!(
-      typeof plaintext === "string" ||
-      plaintext instanceof Uint8Array
-    )) {
-      throw new TypeError(
-        "plaintext must be string or Uint8Array"
-      );
-    }
-
-    const recipient =
-      await PublicIdentity.fromPublicHex(
-        recipientPublicKeyHex
-      );
-
-    const envelopeBytes =
-      await encrypt({
-        sender: this.identity,
-        recipient,
-        plaintext,
-        contentType,
-      });
-
-    const { delivered, failed } =
-      await this.#dispatch(envelopeBytes);
-
-    if (delivered.length === 0) {
-      throw new DispatchError(failed);
-    }
-
-    void this.sync();
-
-    const uuid = bytesToHex(
-      readEnvelope(envelopeBytes).uuid
-    );
-
-    return { uuid, delivered, failed };
+    return this.services.sender.send(recipientPublicKeyHex, plaintext, options);
   }
 
   // =====================================================
@@ -311,11 +221,7 @@ export class SmerpClient {
 
     this.#assertRunning();
 
-    const conversations = await this.storage.conversationsGet(options);
-
-    return conversations.sort(
-      (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0)
-    );
+    return this.services.messages.conversationsGet(options);
   }
 
   /**
@@ -331,22 +237,7 @@ export class SmerpClient {
 
     this.#assertRunning();
 
-    insist(conversation.publicKeyHex, "string");
-
-    const [existing] =
-      await this.storage.conversationsGet({
-        publicKeyHex: conversation.publicKeyHex,
-      });
-
-    const key = await this.storage.conversationsPut(conversation);
-
-    this.eventBus.publish({
-      type: EventTypes.CONVERSATION,
-      conversation,
-      created: !existing,
-    });
-
-    return key;
+    return this.services.messages.conversationsPut(conversation);
   }
 
   // =====================================================
@@ -360,7 +251,7 @@ export class SmerpClient {
 
     this.#assertRunning();
 
-    return this.storage.relaysGet(options);
+    return this.services.directory.relaysGet(options);
   }
 
   /**
@@ -368,33 +259,16 @@ export class SmerpClient {
    * relayPkh is optional: it is learned from the relay's responses.
    * relayToken is optional: an access token issued by the relay's
    * operator, sent as a bearer token on every request to that relay.
-   * Replacing drops sync state (cursor, failure counts) unless the
-   * record passed in carries it, as one from relaysGet does.
+   * A relay that is already syncing keeps its sync state (cursor, key,
+   * failure counts) and writes it back on its next request.
    */
   async relaysPut(relay) {
 
     this.#assertRunning();
 
-    insist(relay.relayUrl, "string");
-    insist(relay.relayType, "string");
+    const key = await this.services.directory.put(relay);
 
-    if (relay.relayPkh != null) {
-      insist(relay.relayPkh, "string");
-    }
-
-    if (relay.relayToken != null) {
-      insist(relay.relayToken, "string");
-    }
-
-    const key = await this.relayWriteLock.run(
-      () => this.storage.relaysPut(relay)
-    );
-
-    this.eventBus.publish({
-      type: EventTypes.RELAY,
-      relay,
-      deleted: false,
-    });
+    this.services.pool.upsert(relay);
 
     void this.sync();
 
@@ -409,28 +283,9 @@ export class SmerpClient {
 
     this.#assertRunning();
 
-    insist(relayUrl, "string");
+    const count = await this.services.directory.delete({ relayUrl });
 
-    const { relay, count } = await this.relayWriteLock.run(async () => {
-
-      const [relay] = await this.storage.relaysGet({ relayUrl });
-
-      if (!relay) {
-        return { relay, count: 0 };
-      }
-
-      return { relay, count: await this.storage.relaysDelete({ relayUrl }) };
-    });
-
-    if (!relay) {
-      return 0;
-    }
-
-    this.eventBus.publish({
-      type: EventTypes.RELAY,
-      relay,
-      deleted: true,
-    });
+    this.services.pool.remove(relayUrl);
 
     return count;
   }
@@ -454,140 +309,4 @@ export class SmerpClient {
       status,
     });
   }
-
-  async #syncLoop() {
-
-    do {
-      this.syncAgain = false;
-      await this.#performSync();
-    } while (
-      this.syncAgain &&
-      this.status === ClientStatus.RUNNING
-    );
-  }
-
-  async #performSync() {
-
-    this.eventBus.publish({
-      type: EventTypes.SYNC,
-      phase: "start",
-    });
-
-    try {
-      const relays = await this.storage.relaysGet();
-      await this.syncEngine.syncRelays(relays);
-    }
-    catch (error) {
-      this.logger.error("Sync failed", error);
-
-      this.eventBus.publish({
-        type: EventTypes.ERROR,
-        error,
-      });
-    }
-    finally {
-      this.eventBus.publish({
-        type: EventTypes.SYNC,
-        phase: "end",
-      });
-    }
-  }
-
-  /**
-   * Older versions disabled a relay after 3 failures in a row, for
-   * good. Sync now backs off instead and only the user sets disabled.
-   * Re-enable relays that look disabled by sync (disabled with more
-   * than 2 failures) so they get retried.
-   */
-  async #resetSyncDisabledRelays() {
-
-    const relays = await this.storage.relaysGet();
-
-    for (const relay of relays) {
-
-      if (!(relay.disabled && relay.failureCount > 2)) {
-        continue;
-      }
-
-      const reset = { ...relay, disabled: false, failureCount: 0 };
-
-      await this.storage.relaysPut(reset);
-
-      this.eventBus.publish({
-        type: EventTypes.RELAY,
-        relay: reset,
-        deleted: false,
-      });
-    }
-  }
-
-  async #dispatch(envelopeBytes) {
-
-    const relays = (await this.storage.relaysGet())
-      .filter(relay => !relay.disabled);
-
-    const results = await Promise.allSettled(
-      relays.map(
-        relay => this.#dispatchToRelay(relay, envelopeBytes)
-      )
-    );
-
-    const delivered = [];
-    const failed = [];
-
-    results.forEach((result, i) => {
-
-      const relayUrl = relays[i].relayUrl;
-
-      if (result.status === "fulfilled") {
-        delivered.push(relayUrl);
-      }
-      else {
-        failed.push({ relayUrl, error: result.reason });
-      }
-    });
-
-    this.logger.info("Dispatch:", { delivered, failed });
-
-    return { delivered, failed };
-  }
-
-  async #dispatchToRelay(relay, envelopeBytes) {
-
-    const rateLimiter = this.rateLimits.for(relay.relayUrl);
-
-    // Fail fast rather than hold send() for a relay's Retry-After.
-    if (rateLimiter.isPaused()) {
-      throw new Error(`Relay asked to wait: ${relay.relayUrl}`);
-    }
-
-    await rateLimiter.acquire();
-
-    const response =
-      await this.requester.request(
-        relay,
-        RequestBuilder.envelopesPost(relay, envelopeBytes)
-      );
-
-    if (response.status === 429) {
-      rateLimiter.pause(
-        this.clock.now() + retryAfterMs(response.headers, this.clock.now())
-      );
-    }
-
-    if (response.status !== 200) {
-      const reason = response.headers?.["x-smerp-unauthorized"];
-      throw new Error(
-        `Relay dispatch failed: ${response.status}` +
-        (typeof reason === "string" ? ` (${reason})` : "")
-      );
-    }
-  }
-
-}
-
-function defaultContentType(plaintext) {
-  return typeof plaintext === "string"
-    ? ContentTypes.TEXT_UTF8
-    : ContentTypes.UNKNOWN;
 }

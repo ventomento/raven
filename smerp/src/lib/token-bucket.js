@@ -1,15 +1,19 @@
 import { RealClock } from "./clock.js";
 
+// Allowance for float error in refill: a token due at nextTokenAt() must
+// be takeable at that time.
+const EPSILON = 1e-9;
+
 /**
- * Token bucket rate limiter.
+ * Token bucket rate limiter. Never waits: the caller asks whether a
+ * token is available now, and when the next one will be.
  *
  * The bucket holds up to `burst` tokens and refills at `ratePerSecond`.
- * acquire() takes one token, waiting for a refill if the bucket is
- * empty. So after an idle period `burst` calls go through at once, and
- * the sustained rate is `ratePerSecond`. Waiters are served in FIFO
- * order. Tokens are never returned: only time refills the bucket.
+ * So after an idle period `burst` takes go through at once, and the
+ * sustained rate is `ratePerSecond`. Tokens are never returned: only
+ * time refills the bucket.
  *
- * pause(untilMs) blocks every acquire until that time, e.g. for a
+ * pause(untilMs) withholds every token until that time, e.g. for a
  * server's Retry-After.
  */
 export class TokenBucket {
@@ -31,18 +35,44 @@ export class TokenBucket {
         this.tokens = burst;
         this.refilledAt = clock.now();
         this.pausedUntil = 0;
-
-        // Chain of pending acquires, for FIFO order.
-        this.tail = Promise.resolve();
     }
 
-    acquire() {
+    // Takes a token if one is available now.
+    tryTake() {
 
-        const turn = this.tail.then(() => this.#take());
+        const now = this.clock.now();
 
-        this.tail = turn.catch(() => {});
+        if (now < this.pausedUntil) {
+            return false;
+        }
 
-        return turn;
+        this.#refill(now);
+
+        if (this.tokens < 1 - EPSILON) {
+            return false;
+        }
+
+        this.tokens = Math.max(0, this.tokens - 1);
+
+        return true;
+    }
+
+    // Earliest time tryTake() can succeed: now if a token is available.
+    nextTokenAt() {
+
+        const now = this.clock.now();
+
+        if (now < this.pausedUntil) {
+            return this.pausedUntil;
+        }
+
+        this.#refill(now);
+
+        if (this.tokens >= 1 - EPSILON) {
+            return now;
+        }
+
+        return now + Math.ceil((1 - this.tokens) * 1000 / this.ratePerSecond);
     }
 
     pause(untilMs) {
@@ -51,30 +81,6 @@ export class TokenBucket {
 
     isPaused() {
         return this.clock.now() < this.pausedUntil;
-    }
-
-    async #take() {
-
-        for (;;) {
-
-            const now = this.clock.now();
-
-            if (now < this.pausedUntil) {
-                await this.clock.sleep(this.pausedUntil - now);
-                continue;
-            }
-
-            this.#refill(now);
-
-            if (this.tokens >= 1) {
-                this.tokens -= 1;
-                return;
-            }
-
-            await this.clock.sleep(
-                Math.ceil((1 - this.tokens) * 1000 / this.ratePerSecond)
-            );
-        }
     }
 
     // Tokens accrue continuously; computed on demand rather than on a timer.

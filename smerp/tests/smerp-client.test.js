@@ -12,6 +12,7 @@ import {
 } from "../../index.js";
 
 import { SmerpServer } from "../src/server/index.js";
+import { TransportDefault } from "../src/transport/transport-default.js";
 import { StorageMemory } from "../src/storage/storage-memory.js";
 import { VirtualClock, FakeRelays } from "./helpers/fakes.js";
 
@@ -205,6 +206,63 @@ test("text and bytes round-trip between two clients through a relay", async (t) 
         2
     );
 
+});
+
+test("many small envelopes are fetched with one request", async (t) => {
+
+    const { relay } = await startRelay(t);
+    const alice = await startClient(t, relay);
+
+    // bob counts the GETs it makes
+    const gets = [];
+    const bob = new SmerpClient({
+        identity: await PrivateIdentity.generate(),
+        syncIntervalMs: 60 * 60 * 1000,
+        transporter: {
+            transport: (request) => {
+                if ((request.options?.method ?? "GET") === "GET") {
+                    gets.push(request.url);
+                }
+                return TransportDefault.transport(request);
+            },
+        },
+    });
+    await bob.start();
+    t.after(() => bob.stop());
+
+    for (let i = 0; i < 30; i++) {
+        await alice.send(bob.publicKeyHex, `m${i}`);
+    }
+
+    await bob.relaysPut(relay);
+    await bob.sync();
+
+    assert.equal((await bob.envelopesGet()).length, 30);
+    // first contact (unsigned, 401, retried signed) with the whole batch, then 204
+    assert.equal(gets.length, 3);
+    assert.equal((await bob.relaysGet())[0].cursor, 30);
+});
+
+test("a 4 MiB envelope round-trips, one byte more is refused by send", async (t) => {
+
+    const { relay } = await startRelay(t);
+    const alice = await startClient(t, relay);
+    const bob = await startClient(t, relay);
+
+    // 4 MiB minus header (94), iv (12) and tag (16)
+    const largest = new Uint8Array(4 * 1024 * 1024 - 122).fill(7);
+
+    const sent = await alice.send(bob.publicKeyHex, largest, { contentType: ContentTypes.FILE });
+    await bob.sync();
+
+    const [received] = await bob.envelopesGet({ uuid: sent.uuid });
+    assert.equal(received.plaintext.byteLength, largest.byteLength);
+    assert.deepEqual(received.plaintext, largest);
+
+    await assert.rejects(
+        alice.send(bob.publicKeyHex, new Uint8Array(largest.byteLength + 1)),
+        /too large/
+    );
 });
 
 test("the client learns the relay pkh and recovers when the relay rotates it", async (t) => {

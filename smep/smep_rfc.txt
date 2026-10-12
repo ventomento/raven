@@ -73,10 +73,13 @@ Plaintext is UTF-8 text when content_type is 0x01, otherwise raw bytes.
     106     n     ciphertext             n = payload_size - 28
     106+n   16    tag
 
-The header is 94 bytes. The total length MUST equal 94 + payload_size.
+The header is 94 bytes. The total length MUST equal 94 + payload_size
+and MUST NOT exceed 4 MiB (4,194,304 bytes), so payload_size is at most
+4,194,210 and the plaintext at most 4,194,182 bytes.
 
-A parser MUST reject an envelope with a version other than 0x02, a
-payload_size below 28, or a total length that does not match.
+A writer MUST refuse to create a larger envelope. A parser MUST reject
+an envelope with a version other than 0x02, a payload_size below 28, a
+total length that does not match, or a total length above 4 MiB.
 
 
 5. Content Types

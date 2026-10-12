@@ -3,13 +3,17 @@
 import { BinaryReader } from "./binary.js";
 import { EnvelopeLayout } from "./layout.js";
 
-const { HEADER_SIZE, SIZES } = EnvelopeLayout;
+const { HEADER_SIZE, MAX_SIZE, SIZES } = EnvelopeLayout;
 
 // Parses an envelope without decrypting it. Returns a frozen object.
 // header, aes_gcm_iv and ciphertext_with_tag are views into buffer, not
 // copies; header is the bytes as received, the aad for decryption.
 export function readEnvelope(buffer) {
   const r = new BinaryReader(buffer);
+
+  if (buffer.byteLength > MAX_SIZE) {
+    throw new Error("Envelope too large");
+  }
 
   // ---- HEADER ----
   const version = r.u8();
