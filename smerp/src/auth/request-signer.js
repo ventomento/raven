@@ -5,7 +5,7 @@ import { sha256 } from "../../../smep/src/crypto/hash.js";
 import { hmacSha256, verifyHmacSha256 } from "../../../smep/src/crypto/hmac.js";
 import { bytesToHex, hexToBytes } from "../../../smep/src/encoding/hex.js";
 import { encodeUtf8 } from "../../../smep/src/encoding/utf8.js";
-import { RealClock } from "../sync/rate-limiter.js";
+import { RealClock } from "../lib/clock.js";
 
 // Request signing, spec: auth_rfc.txt. Every request to a relay is
 // signed by one X25519 identity with an HMAC over the whole request.

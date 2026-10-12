@@ -1,7 +1,7 @@
 import { insist, PrivateIdentity } from "../../../smep/src/index.js";
 import { TransportDefault } from "../transport/transport-default.js";
 import { RequestSigner, normalizePkh } from "../auth/request-signer.js";
-import { RealClock } from "../sync/rate-limiter.js";
+import { RealClock } from "../lib/clock.js";
 
 export const RELAY_PKH_HEADER = "x-smerp-relay-pkh";
 

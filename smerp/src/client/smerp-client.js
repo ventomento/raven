@@ -17,8 +17,9 @@ import { TransportDefault } from "../transport/transport-default.js";
 import { SyncEngine } from "../sync/sync-engine.js";
 import { LightLog } from "../log/light-log.js";
 import { Ingestor } from "../ingest/ingestor.js";
-import { RealClock, RelayRateLimits, retryAfterMs } from "../sync/rate-limiter.js";
-import { ConcurrencyLimiter } from "../sync/concurrency-limiter.js";
+import { RealClock } from "../lib/clock.js";
+import { RelayRateLimits, retryAfterMs } from "../sync/rate-limiter.js";
+import { ConcurrencyLimiter } from "../lib/concurrency-limiter.js";
 import { EventBus, EventTypes } from "../event/event-bus.js";
 import { NotStartedError, DispatchError } from "./errors.js";
 

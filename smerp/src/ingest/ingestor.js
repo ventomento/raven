@@ -1,8 +1,8 @@
 import { decryptEnvelope, PrivateIdentity, readEnvelope, bytesToHex } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
 import { EventBus, EventTypes } from "../event/event-bus.js";
-import { ConcurrencyLimiter } from "../sync/concurrency-limiter.js";
-import { RealClock } from "../sync/rate-limiter.js";
+import { ConcurrencyLimiter } from "../lib/concurrency-limiter.js";
+import { RealClock } from "../lib/clock.js";
 
 export const IngestOutcome = Object.freeze({
   STORED: "stored",          // new envelope, persisted and announced

@@ -1,7 +1,8 @@
 import { insist } from "../../../smep/src/index.js";
 import { RequestBuilder } from "../request/request-builder.js";
 import { RelayRequester } from "../request/relay-requester.js";
-import { RealClock, retryAfterMs } from "./rate-limiter.js";
+import { RealClock } from "../lib/clock.js";
+import { retryAfterMs } from "./rate-limiter.js";
 
 const SMERP_HEADERS = Object.freeze({
     cursor: "x-smerp-cursor",

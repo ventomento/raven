@@ -1,8 +1,9 @@
 import { PrivateIdentity } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
-import { ConcurrencyLimiter } from "./concurrency-limiter.js";
+import { ConcurrencyLimiter } from "../lib/concurrency-limiter.js";
 import { EnvelopeStream } from "./envelope-stream.js";
-import { RealClock, RelayRateLimits } from "./rate-limiter.js";
+import { RealClock } from "../lib/clock.js";
+import { RelayRateLimits } from "./rate-limiter.js";
 import { RelayRequester } from "../request/relay-requester.js";
 import { IngestOutcome } from "../ingest/ingestor.js";
 import { EventTypes } from "../event/event-bus.js";

@@ -22,9 +22,12 @@ export { RelayRequester } from "./request/relay-requester.js";
 // sync and ingest
 export { SyncEngine } from "./sync/sync-engine.js";
 export { EnvelopeStream } from "./sync/envelope-stream.js";
-export { ConcurrencyLimiter } from "./sync/concurrency-limiter.js";
-export { RateLimiter, RelayRateLimits } from "./sync/rate-limiter.js";
+export { RelayRateLimits } from "./sync/rate-limiter.js";
 export { Ingestor, IngestOutcome } from "./ingest/ingestor.js";
+
+// generic limiters
+export { ConcurrencyLimiter } from "./lib/concurrency-limiter.js";
+export { TokenBucket } from "./lib/token-bucket.js";
 
 // relay auth
 export {
