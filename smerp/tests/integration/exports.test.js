@@ -41,7 +41,7 @@ test("raven/smep: the primitives", () => {
     assert.deepEqual(missing(smep, [
         "PrivateIdentity", "PublicIdentity",
         "encrypt", "decrypt", "createEnvelope", "decryptEnvelope", "readEnvelope",
-        "EnvelopeLayout", "ContentTypes", "insist",
+        "EnvelopeLayout", "ContentTypes", "insist", "cryptoSupport",
     ]), []);
 });
 

@@ -2,3 +2,8 @@
 // (uses the DOM), so it is never re-exported from the package root.
 
 export { WebUi } from "./web-ui.js";
+export {
+  browserSupport,
+  UnsupportedBrowserError,
+  UnsupportedReasons,
+} from "./browser-support.js";

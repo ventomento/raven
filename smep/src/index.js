@@ -36,6 +36,7 @@ export { deriveAesKey, deriveHmacKey } from "./crypto/kdf.js";
 export { hmacSha256, verifyHmacSha256 } from "./crypto/hmac.js";
 export { sha256 } from "./crypto/hash.js";
 export { randomBytes, randomIV } from "./crypto/random.js";
+export { cryptoSupport } from "./crypto/support.js";
 
 // encodings
 export { bytesToHex, hexToBytes } from "./encoding/hex.js";

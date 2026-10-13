@@ -51,6 +51,7 @@
       color: inherit;
     }
     button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: 0.5; }
     button[type="submit"] { background: #2f6fec; border-color: #2f6fec; color: #fff; font-weight: 600; }
     .or { text-align: center; opacity: 0.6; }
     .error { color: #c93c37; min-height: 1.4em; }
@@ -69,7 +70,7 @@
 
   <script type="module">
     import { PrivateIdentity } from "../../index.js";
-    import { WebUi } from "../src/index.js";
+    import { WebUi, browserSupport } from "../src/index.js";
 
     const form = document.getElementById("login");
     const errorLine = document.getElementById("error");
@@ -90,6 +91,17 @@
     }
 
     const keyFile = document.getElementById("key-file");
+
+    // Say up front if this browser cannot run the app, rather than fail
+    // on the first click.
+    browserSupport().then(support => {
+      if (!support.ok) {
+        errorLine.textContent = support.message;
+        for (const button of form.querySelectorAll("button")) {
+          button.disabled = true;
+        }
+      }
+    });
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();

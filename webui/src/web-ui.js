@@ -5,6 +5,7 @@ import { insist } from "../../smep/src/util/util.js";
 import { h } from "./dom.js";
 import { parsePublicKeyHex } from "./format.js";
 import { AppShell } from "./app-shell.js";
+import { browserSupport, UnsupportedBrowserError } from "./browser-support.js";
 
 const STYLESHEET_URL = new URL("./styles/webui.css", import.meta.url);
 
@@ -24,6 +25,10 @@ const STYLESHEET_URL = new URL("./styles/webui.css", import.meta.url);
  * unless a relay with that relayUrl is already stored. Stored relays are
  * left untouched, so the user's edits (e.g. disabling one) survive.
  * relayPkh is optional: the client learns it from the relay.
+ *
+ * start() first checks that the browser can run the UI and rejects with
+ * an UnsupportedBrowserError (message meant for the user) if it cannot.
+ * A host page can run the same check up front with browserSupport().
  */
 export class WebUi {
 
@@ -53,6 +58,13 @@ export class WebUi {
 
     if (this.client) {
       return;
+    }
+
+    // Only the default storage needs IndexedDB.
+    const support = await browserSupport({ indexedDb: !this.storage });
+
+    if (!support.ok) {
+      throw new UnsupportedBrowserError(support.reason);
     }
 
     const identity = await PrivateIdentity.fromPrivateKeyHex(this.privateKeyHex);
