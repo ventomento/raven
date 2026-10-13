@@ -136,7 +136,7 @@ export class StorageInterface {
    * Primary Key
    * -----------
    *
-   * uuid
+   * hash
    *
    * Supported Query Options
    * -----------------------
@@ -146,10 +146,10 @@ export class StorageInterface {
    *   Return all envelopes.
    *
    * {
-   *   uuid
+   *   hash
    * }
    *
-   *   Return the envelope matching the given uuid.
+   *   Return the envelope matching the given hash.
    *
    * {
    *   publicKeyHex
@@ -341,7 +341,7 @@ lastFailureReason (sync-owned; why the last request failed, null after
 Envelope Record
 ---------------
 
-uuid                     (primary key)
+hash                     (primary key; hex sha256 of the envelope bytes)
 
 publicKeyHex             (conversation identifier)
 
@@ -370,7 +370,7 @@ lastMessageAt
 /**
  * Implementations should provide efficient primary-key lookups for:
  *
- * envelopes.uuid
+ * envelopes.hash
  * conversations.publicKeyHex
  * relays.relayUrl
  *

@@ -74,11 +74,11 @@ test("text and bytes round-trip between two clients through a relay", async (t) 
 
     assert.deepEqual(sent.delivered, [relay.relayUrl]);
     assert.deepEqual(sent.failed, []);
-    assert.match(sent.uuid, /^[0-9a-f]{32}$/);
+    assert.match(sent.hash, /^[0-9a-f]{64}$/);
 
     // the sender stores its own envelope only via sync, like any other
     await alice.sync();
-    const [own] = await alice.envelopesGet({ uuid: sent.uuid });
+    const [own] = await alice.envelopesGet({ hash: sent.hash });
     assert.equal(own.direction, "outbound");
     assert.equal(own.plaintext, "hello bob");
     assert.equal(own.contentType, ContentTypes.TEXT_UTF8);
@@ -87,7 +87,7 @@ test("text and bytes round-trip between two clients through a relay", async (t) 
     await bob.sync();
     await settle();
 
-    const received = bobEnvelopes.find(e => e.envelope.uuid === sent.uuid).envelope;
+    const received = bobEnvelopes.find(e => e.envelope.hash === sent.hash).envelope;
     assert.equal(received.direction, "inbound");
     assert.equal(received.plaintext, "hello bob");
     assert.equal(received.publicKeyHex, alice.publicKeyHex);
@@ -96,7 +96,7 @@ test("text and bytes round-trip between two clients through a relay", async (t) 
     const sentBytes = await alice.send(bob.publicKeyHex, bytes);
     await bob.sync();
 
-    const [binary] = await bob.envelopesGet({ uuid: sentBytes.uuid });
+    const [binary] = await bob.envelopesGet({ hash: sentBytes.hash });
     assert.equal(binary.contentType, ContentTypes.UNKNOWN);
     assert.ok(binary.plaintext instanceof Uint8Array);
     assert.deepEqual(binary.plaintext, bytes);
@@ -136,13 +136,13 @@ test("a 4 MiB envelope round-trips, one byte more is refused by send", async (t)
     const alice = await startClient(t, relay);
     const bob = await startClient(t, relay);
 
-    // 4 MiB minus header (94), iv (12) and tag (16)
-    const largest = new Uint8Array(4 * 1024 * 1024 - 122).fill(7);
+    // 4 MiB minus header (78), iv (12) and tag (16)
+    const largest = new Uint8Array(4 * 1024 * 1024 - 106).fill(7);
 
     const sent = await alice.send(bob.publicKeyHex, largest, { contentType: ContentTypes.FILE });
     await bob.sync();
 
-    const [received] = await bob.envelopesGet({ uuid: sent.uuid });
+    const [received] = await bob.envelopesGet({ hash: sent.hash });
     assert.equal(received.contentType, ContentTypes.FILE);
     assert.deepEqual(received.plaintext, largest);
 
@@ -179,7 +179,7 @@ test("the client learns the relay key and recovers when the relay rotates it", a
 
     const sent = await alice.send(bob.publicKeyHex, "after rotation");
     await bob.sync();
-    assert.equal((await bob.envelopesGet({ uuid: sent.uuid })).length, 1);
+    assert.equal((await bob.envelopesGet({ hash: sent.hash })).length, 1);
 });
 
 test("an envelope held by several relays is stored and counted once", async (t) => {
@@ -336,5 +336,5 @@ test("a dead relay does not stop sends or syncs through a live one", async (t) =
     await bob.sync();
 
     assert.equal(transporter.gets(dead.relayUrl).length, deadRequests);
-    assert.equal((await bob.envelopesGet({ uuid: sent.uuid })).length, 1);
+    assert.equal((await bob.envelopesGet({ hash: sent.hash })).length, 1);
 });

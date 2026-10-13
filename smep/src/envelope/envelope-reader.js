@@ -21,7 +21,6 @@ export function readEnvelope(buffer) {
     throw new Error("Invalid version");
   }
 
-  const uuid = r.bytes(SIZES.UUID);
   const sender_public_key = r.bytes(SIZES.PUBKEY);
   const recipient_public_key = r.bytes(SIZES.PUBKEY);
   const timestamp = r.u64();
@@ -44,7 +43,6 @@ export function readEnvelope(buffer) {
 
   return Object.freeze({
     version,
-    uuid,
     sender_public_key,
     recipient_public_key,
     timestamp,

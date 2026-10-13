@@ -21,9 +21,10 @@ export function openDatabase(databaseName) {
 
       const db = request.result;
 
-      // v1 held times in seconds under other names. There is no data
-      // worth keeping, so start over rather than migrate.
-      if (event.oldVersion < 2) {
+      // v1 held times in seconds under other names, v2 keyed envelopes by
+      // uuid. There is no data worth keeping, so start over rather than
+      // migrate.
+      if (event.oldVersion < 3) {
         for (const name of [...db.objectStoreNames]) {
           db.deleteObjectStore(name);
         }
@@ -43,7 +44,7 @@ export function openDatabase(databaseName) {
           db.createObjectStore(
             STORES.ENVELOPES,
             {
-              keyPath: "uuid",
+              keyPath: "hash",
             }
           );
 

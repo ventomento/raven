@@ -9,6 +9,7 @@ import {
   decrypt,
   createEnvelope,
   decryptEnvelope,
+  envelopeHash,
 } from "../src/protocol/protocol.js";
 
 import { PrivateIdentity } from "../src/identity/identity.js";
@@ -23,13 +24,12 @@ import { exportPublicKeyBytes } from "../src/crypto/x25519.js";
 // Byte offsets in a serialized envelope (smep_rfc.txt section 4).
 const OFFSET = {
   VERSION: 0,
-  UUID: 1,
-  SENDER: 17,
-  RECIPIENT: 49,
-  TIMESTAMP: 81,
-  CONTENT_TYPE: 89,
-  IV: 94,
-  CIPHERTEXT: 106,
+  SENDER: 1,
+  RECIPIENT: 33,
+  TIMESTAMP: 65,
+  CONTENT_TYPE: 73,
+  IV: 78,
+  CIPHERTEXT: 90,
 };
 
 // alice -> bob envelope bytes.
@@ -87,7 +87,6 @@ test("encrypt/decrypt roundtrip", async () => {
     await bob.exportPublicHex()
   );
 
-  assert.ok(typeof result.uuid === "string");
   assert.ok(typeof result.timestamp === "number");
 });
 
@@ -269,7 +268,6 @@ test("encrypt accepts the largest plaintext and rejects one byte more", async ()
 // Every byte except the version is authenticated: the header as AAD,
 // the payload by the tag. (A changed version fails to parse.)
 const tamperCases = [
-  ["uuid", OFFSET.UUID],
   ["sender public key", OFFSET.SENDER],
   ["recipient public key", OFFSET.RECIPIENT],
   ["timestamp", OFFSET.TIMESTAMP + 7],
@@ -384,4 +382,40 @@ test("ArrayBuffer plaintext roundtrip", async () => {
   });
 
   assert.deepEqual(Array.from(result.plaintext), [1, 2, 3]);
+});
+
+// ============================================================
+// ENVELOPE HASH
+// ============================================================
+
+test("envelopeHash is the hex sha256 of the envelope bytes", async () => {
+  const { envelopeBytes } = await aliceToBob();
+
+  const hash = await envelopeHash(envelopeBytes);
+
+  assert.match(hash, /^[0-9a-f]{64}$/);
+  assert.equal(await envelopeHash(new Uint8Array(envelopeBytes)), hash);
+  assert.equal(await envelopeHash(envelopeBytes.slice(0)), hash);
+});
+
+test("envelopeHash differs for two encryptions of the same message", async () => {
+  const alice = await PrivateIdentity.generate();
+  const bob = new PublicIdentity((await PrivateIdentity.generate()).publicKey);
+
+  const create = () =>
+    createEnvelope({ sender: alice, recipient: bob, plaintext: "same" });
+
+  assert.notEqual(
+    await envelopeHash(await create()),
+    await envelopeHash(await create())
+  );
+});
+
+test("envelopeHash changes with any byte", async () => {
+  const { envelopeBytes } = await aliceToBob();
+
+  assert.notEqual(
+    await envelopeHash(flipByte(envelopeBytes, OFFSET.CIPHERTEXT)),
+    await envelopeHash(envelopeBytes)
+  );
 });

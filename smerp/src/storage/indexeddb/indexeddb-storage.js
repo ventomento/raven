@@ -52,9 +52,9 @@ export class IndexedDbStorage
 
   async envelopesGet(options = {}) {
 
-    if (options.uuid) {
-      return this.#getEnvelopeByUuid(
-        options.uuid
+    if (options.hash) {
+      return this.#getEnvelopeByHash(
+        options.hash
       );
     }
 
@@ -64,7 +64,7 @@ export class IndexedDbStorage
       );
     }
 
-    // getAll returns primary key (uuid) order; the contract is newest first.
+    // getAll returns primary key (hash) order; the contract is newest first.
     const envelopes = await this.#getAll(
       STORES.ENVELOPES
     );
@@ -79,7 +79,7 @@ export class IndexedDbStorage
       record
     );
 
-    return record.uuid;
+    return record.hash;
   }
 
   //
@@ -289,13 +289,13 @@ export class IndexedDbStorage
     );
   }
 
-  async #getEnvelopeByUuid(
-    uuid
+  async #getEnvelopeByHash(
+    hash
   ) {
 
     return this.#getByKey(
       STORES.ENVELOPES,
-      uuid
+      hash
     );
   }
 

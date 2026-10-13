@@ -39,6 +39,13 @@ import { RealClock } from "../lib/clock.js";
  * start. A slot is held for one step, not one session: after its step a
  * session goes to the back of pending, so a backlog cannot starve others.
  *
+ * A round runs from a wake() on an idle scheduler until nothing is
+ * pending or running. Each session gets at most maxStepsPerRound steps
+ * per round: a session that still has more after that goes idle until
+ * the next round (onCapped is told), so a relay that always has more
+ * (a hostile one, or a huge backlog) cannot hold a round open. A wake()
+ * during the round does not give it more.
+ *
  * The scheduler owns no interval and has no remove: the caller wakes it
  * when it wants a sync, and on a relay change stops it and builds a new
  * one from the same session objects.
@@ -47,29 +54,41 @@ export class Scheduler {
 
     static DEFAULTS = Object.freeze({
         concurrency: 6,
+        maxStepsPerRound: 50,
     });
 
     constructor({
         concurrency = Scheduler.DEFAULTS.concurrency,
+        maxStepsPerRound = Scheduler.DEFAULTS.maxStepsPerRound,
         // { now(), timer(ms, fn) → cancel }
         clock = RealClock,
         // (error, session) for a step that rejected
         onError = () => {},
+        // (session) that used its steps for the round while it had more
+        onCapped = () => {},
     } = {}) {
 
         if (!Number.isInteger(concurrency) || concurrency <= 0) {
             throw new Error("Scheduler concurrency must be a positive integer");
         }
 
+        if (!Number.isInteger(maxStepsPerRound) || maxStepsPerRound <= 0) {
+            throw new Error("Scheduler maxStepsPerRound must be a positive integer");
+        }
+
         insist(onError, "function");
+        insist(onCapped, "function");
 
         this.concurrency = concurrency;
+        this.maxStepsPerRound = maxStepsPerRound;
         this.clock = clock;
         this.onError = onError;
+        this.onCapped = onCapped;
 
         this.idle = new Set();
         this.pending = new Set();
         this.running = new Map();   // session -> promise of its step
+        this.stepsThisRound = new Map();    // session -> steps started
         this.cancelTimer = null;
         this.done = null;           // { promise, resolve } while busy
         this.stopped = false;
@@ -89,7 +108,8 @@ export class Scheduler {
     }
 
     /**
-     * Make every idle session pending, and start what fits. Resolves
+     * Make every idle session that has steps left this round pending,
+     * and start what fits. Resolves
      * once nothing is pending or running. Never rejects.
      */
     wake() {
@@ -99,9 +119,11 @@ export class Scheduler {
         }
 
         for (const session of this.idle) {
-            this.pending.add(session);
+            if (!this.usedRound(session)) {
+                this.idle.delete(session);
+                this.pending.add(session);
+            }
         }
-        this.idle.clear();
 
         const done = this.whenDone();
 
@@ -163,6 +185,7 @@ export class Scheduler {
     startStep(session) {
 
         this.pending.delete(session);
+        this.stepsThisRound.set(session, (this.stepsThisRound.get(session) ?? 0) + 1);
 
         const step = Promise.resolve()
             .then(() => session.step())
@@ -182,7 +205,11 @@ export class Scheduler {
 
         this.running.delete(session);
 
-        if (more && !this.stopped) {
+        if (more && !this.stopped && this.usedRound(session)) {
+            this.onCapped(session);
+            this.idle.add(session);
+        }
+        else if (more && !this.stopped) {
             this.pending.add(session);
         }
         else {
@@ -231,11 +258,18 @@ export class Scheduler {
         return this.done.promise;
     }
 
+    usedRound(session) {
+        return (this.stepsThisRound.get(session) ?? 0) >= this.maxStepsPerRound;
+    }
+
+    // The round ends: every session gets its steps back.
     resolveIfDone() {
 
         if (!this.done || this.pending.size > 0 || this.running.size > 0) {
             return;
         }
+
+        this.stepsThisRound.clear();
 
         const { resolve } = this.done;
         this.done = null;

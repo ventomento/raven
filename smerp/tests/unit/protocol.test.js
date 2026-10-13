@@ -7,6 +7,7 @@ import {
     Status,
     MAX_ENVELOPE_BYTES,
     MAX_BATCH_BYTES,
+    MAX_RESPONSE_BYTES,
     encodeBatch,
     decodeBatch,
     parseCursor,
@@ -130,4 +131,14 @@ test("size limits are 4 MiB and the envelope limit is smep's", () => {
         [Status.OK, Status.NO_CONTENT, Status.BAD_REQUEST, Status.UNAUTHORIZED, Status.TOO_MANY_REQUESTS],
         [200, 204, 400, 401, 429]
     );
+});
+
+test("MAX_RESPONSE_BYTES holds a full batch of the smallest envelopes, framing included", () => {
+
+    const smallest = EnvelopeLayout.HEADER_SIZE + EnvelopeLayout.SIZES.MIN_PAYLOAD;
+    const count = Math.floor(MAX_BATCH_BYTES / smallest);
+
+    assert.equal(MAX_RESPONSE_BYTES, MAX_BATCH_BYTES + 4 * count);
+    assert.ok(MAX_RESPONSE_BYTES >= count * (4 + smallest));
+    assert.ok(MAX_RESPONSE_BYTES >= 4 + MAX_ENVELOPE_BYTES);
 });

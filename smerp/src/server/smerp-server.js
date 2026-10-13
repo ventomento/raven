@@ -7,7 +7,7 @@ import http from "node:http";
 import { URL } from "node:url";
 import { StorageServer } from "./storage-server.js";
 import { bytesToHex } from "../../../smep/src/encoding/hex.js";
-import { PrivateIdentity, readEnvelope } from "../../../smep/src/index.js";
+import { PrivateIdentity, readEnvelope, envelopeHash } from "../../../smep/src/index.js";
 import { RequestVerifier } from "../auth/request-signer.js";
 import {
   SmerpHeaders,
@@ -322,8 +322,8 @@ export class SmerpServer {
       return;
     }
 
-    const uuid =
-      bytesToHex(unpacked.uuid);
+    const hash =
+      await envelopeHash(envelopeBuffer);
 
     const spkh =
       bytesToHex(
@@ -347,7 +347,7 @@ export class SmerpServer {
     try {
 
       this.storage.envelopesPost({
-        uuid,
+        hash,
         spkh,
         rpkh,
         size,
@@ -356,10 +356,10 @@ export class SmerpServer {
 
     } catch (err) {
 
-      // duplicate UUID is considered success
+      // An envelope already held (identical bytes) is a success.
       if (
         err.message ===
-        "duplicate uuid"
+        "duplicate envelope"
       ) {
         res.statusCode = 200;
         res.end();

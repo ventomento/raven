@@ -60,7 +60,8 @@ relay accepts is its policy. A relay typically accepts the envelope's
 sender (a client sending) or recipient (a client keeping a copy, e.g.
 on an archive), and the peer relays it federates with (section 5).
 
-    200   accepted, including an already-held uuid
+    200   accepted, including an envelope already held (same hash,
+          smep_rfc section 6)
     400   wrong Content-Type, the body is not a valid envelope, or it
           is larger than 4 MiB (smep_rfc section 4). A relay MAY reject
           on Content-Length before reading the body.
@@ -128,8 +129,12 @@ in addition to the headers listed in auth_rfc section 9.
 =============
 
 Both relay types SHOULD forward each newly accepted envelope to the peer
-relays they know, using POST /envelopes. An envelope whose uuid the
-relay already holds is not forwarded again, which ends loops.
+relays they know, using POST /envelopes. An envelope whose hash the
+relay already holds is not forwarded again, which ends loops. The hash
+is the SHA-256 of the envelope bytes (smep_rfc section 6); a relay
+MUST NOT treat an envelope as held because a header field matches,
+or anyone could post a different envelope first and have the real one
+dropped.
 
 A forwarding relay signs with its own keypair and learns each peer's
 key like any client does. Which peers a relay forwards to, and which
@@ -137,7 +142,7 @@ peers it accepts envelopes from, is local policy. A forwarded envelope
 carries no proof of its sender: the signature identifies the
 forwarding relay, not the envelope's author.
 
-A relay that deletes an envelope SHOULD keep its uuid for a while
+A relay that deletes an envelope SHOULD keep its hash for a while
 longer, so that a copy arriving again from a peer is recognized and
 neither stored nor forwarded again.
 
@@ -147,7 +152,8 @@ Envelopes MUST be stored and forwarded byte-identical.
 6. Client Rules
 ===============
 
-- Deduplicate by uuid: the same envelope arrives from many relays.
+- Deduplicate by envelope hash (smep_rfc section 6): the same envelope
+  arrives from many relays.
 - Drop an envelope that fails to parse or decrypt, and advance the
   cursor past it. Only a local failure (storage) keeps the cursor, so
   the batch is fetched again later.
@@ -161,6 +167,15 @@ Envelopes MUST be stored and forwarded byte-identical.
   relay only (auth_rfc section 8).
 - Treat any other 401 as a failed request to that relay.
   The x-smerp-unauthorized reason, if any, is display text only.
+- Do not follow redirects: a 3xx is a failed request to that relay,
+  since following it would send the signed request and the access
+  token elsewhere.
+- Do not read a response body larger than the largest valid batch
+  (4 MiB of envelopes plus their 4-byte lengths); a larger one is a
+  failed request.
+- A client MAY limit the requests to one relay per sync, so a relay
+  that always returns more cannot keep a sync from ending. The rest
+  of the backlog is fetched by the next sync.
 
 
 7. Security Notes

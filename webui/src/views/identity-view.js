@@ -1,9 +1,11 @@
 // webui/src/views/identity-view.js
 
-import { h, replaceChildren } from "../dom.js";
+import { h, replaceChildren, downloadBytes } from "../dom.js";
 
 /**
- * The client's own keys. The private key stays hidden until revealed.
+ * The client's own keys, and what the user needs to know about them. The
+ * private key stays hidden until revealed; backing it up is the user's
+ * job, so it can be copied or downloaded as a text file.
  */
 export class IdentityView {
 
@@ -35,7 +37,9 @@ export class IdentityView {
       h("h2", {}, "Identity"),
       h("section", { class: "card" },
         h("div", { class: "label" }, "Public key"),
-        h("p", { class: "muted small" }, "Share this so others can message you."),
+        h("p", { class: "muted small" },
+          "This is your address. Share it with anyone you want to hear from: " +
+          "anyone who has it can send you messages."),
         h("code", { class: "key" }, publicKeyHex),
         h("div", { class: "form-row" },
           copyButton(() => publicKeyHex)
@@ -47,9 +51,47 @@ export class IdentityView {
         privateValue,
         h("div", { class: "form-row" },
           revealButton,
-          copyButton(() => this.identity.exportPrivateHex())
+          copyButton(() => this.identity.exportPrivateHex()),
+          h("button", {
+            class: "ghost",
+            type: "button",
+            onclick: () => this.downloadPrivateKey(publicKeyHex),
+          }, "Download")
         )
+      ),
+      h("section", { class: "card" },
+        h("div", { class: "label" }, "About your key"),
+        h("p", { class: "muted small" },
+          h("strong", {}, "Back it up."),
+          " Your private key is your account. There is no password reset or " +
+          "recovery: if you lose it, nobody can restore your inbox. Saving it " +
+          "and keeping it safe on your devices, backups and cloud storage is up to you."),
+        h("p", { class: "muted small" },
+          h("strong", {}, "Use it with any client."),
+          " The key isn't tied to this app or website. Any client that " +
+          "implements the smerp protocol can open your inbox with it."),
+        h("p", { class: "muted small" },
+          h("strong", {}, "Inboxes can differ."),
+          " Relays deliver on a best-effort basis and may delete messages after " +
+          "a retention period. Each client keeps its own copy of what it has " +
+          "downloaded, so a client set up later or on another device only gets " +
+          "what the relays still hold, and older messages may be missing there. " +
+          "Messages shown here are stored only in this browser; clearing its " +
+          "site data deletes them.")
       )
+    );
+  }
+
+  // Plain hex in a .txt file, so any client can read it back. Sent as
+  // octet-stream: some mobile browsers show text/plain instead of saving it.
+  async downloadPrivateKey(publicKeyHex) {
+
+    const privateKeyHex = await this.identity.exportPrivateHex();
+
+    downloadBytes(
+      `${privateKeyHex}\n`,
+      `smerp-private-key-${publicKeyHex.slice(0, 8)}.txt`,
+      "application/octet-stream"
     );
   }
 

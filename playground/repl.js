@@ -115,16 +115,16 @@ async function startClient(name, identity, relays) {
   return client;
 }
 
-// Resolves when client has stored an envelope with this uuid.
-function received(client, uuid) {
+// Resolves when client has stored an envelope with this hash.
+function received(client, hash) {
   return new Promise((resolve) => {
     const off = client.on(EventTypes.ENVELOPE, ({ envelope }) => {
-      if (envelope.uuid === uuid) {
+      if (envelope.hash === hash) {
         off();
         resolve(envelope);
       }
     });
-    client.envelopesGet({ uuid }).then(([envelope]) => {
+    client.envelopesGet({ hash }).then(([envelope]) => {
       if (envelope) {
         off();
         resolve(envelope);
@@ -140,7 +140,7 @@ async function show(client) {
     peer: nameOf(e.publicKeyHex),
     text: text(e.plaintext),
     time: new Date(e.sentAt).toLocaleTimeString(),
-    uuid: e.uuid.slice(0, 10) + "…",
+    hash: e.hash.slice(0, 10) + "…",
   })));
 }
 
@@ -175,10 +175,10 @@ for (const client of [bob, carol, alice2]) {
 }
 
 await Promise.all([
-  received(bob, toBob.uuid),
-  received(carol, toCarol.uuid),
-  received(alice2, toBob.uuid),
-  received(alice2, toCarol.uuid),
+  received(bob, toBob.hash),
+  received(carol, toCarol.hash),
+  received(alice2, toBob.hash),
+  received(alice2, toCarol.hash),
 ]);
 
 console.log();

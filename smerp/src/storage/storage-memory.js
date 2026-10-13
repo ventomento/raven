@@ -36,20 +36,20 @@ export class StorageMemory
   async envelopesPut(record) {
 
     this.envelopes.set(
-      record.uuid,
+      record.hash,
       structuredClone(record)
     );
 
-    return record.uuid;
+    return record.hash;
   }
 
   async envelopesGet(options = {}) {
 
     // Primary key lookup. Ingest dedups every envelope through this.
-    if (options.uuid) {
+    if (options.hash) {
 
       const record =
-        this.envelopes.get(options.uuid);
+        this.envelopes.get(options.hash);
 
       return record
         ? [structuredClone(record)]

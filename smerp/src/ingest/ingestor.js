@@ -3,7 +3,7 @@ import {
     PrivateIdentity,
     readEnvelope,
     decryptEnvelope,
-    bytesToHex,
+    envelopeHash,
 } from "../../../smep/src/index.js";
 import { RealClock } from "../lib/clock.js";
 
@@ -13,8 +13,9 @@ import { RealClock } from "../lib/clock.js";
  *
  * Per frame, in batch order:
  *
- *   parse      readEnvelope → uuid            throws → rejected, skipped
- *   dedup      already stored                 → skipped
+ *   hash       envelopeHash (sha256 of the bytes)
+ *   dedup      hash already stored            → skipped
+ *   parse      readEnvelope                   throws → rejected, skipped
  *   decrypt    decryptEnvelope                throws → rejected, skipped
  *   store      envelopesPut                   throws → propagates
  *   convo      conversationsPut               throws → propagates
@@ -34,7 +35,8 @@ import { RealClock } from "../lib/clock.js";
  *
  * Stored envelope:
  *
- *   { uuid, contentType, plaintext,
+ *   { hash,                         hex sha256 of the envelope bytes
+ *     contentType, plaintext,
  *     senderPublicKeyHex, recipientPublicKeyHex,
  *     publicKeyHex,                 the peer: recipient if we sent it, else sender
  *     direction,                    "inbound" | "outbound"
@@ -59,8 +61,7 @@ export class Ingestor {
         onEnvelope = () => {},
         // (conversation, created) after it is stored
         onConversation = () => {},
-        // ({ uuid, reason, relayUrl }) for a skipped envelope; uuid is null
-        // if the envelope could not be parsed
+        // ({ hash, reason, relayUrl }) for a skipped envelope
         onRejected = () => {},
     }) {
 
@@ -146,33 +147,26 @@ export class Ingestor {
 
     async ingestFrame(bytes, relayUrl) {
 
-        let envelope;
+        // The hash is computed from the bytes, never read from the header, so
+        // another envelope cannot claim it and get the real one skipped.
+        const hash = await envelopeHash(bytes);
 
-        try {
-            envelope = readEnvelope(bytes);
-        }
-        catch (error) {
-            this.reject(null, error, relayUrl);
-            return;
-        }
-
-        const uuid = bytesToHex(envelope.uuid);
-
-        if (await this.isStored(uuid)) {
+        if (await this.isStored(hash)) {
             return;
         }
 
         let decrypted;
 
         try {
+            const envelope = readEnvelope(bytes);
             decrypted = await decryptEnvelope({ identity: this.identity, envelope });
         }
         catch (error) {
-            this.reject(uuid, error, relayUrl);
+            this.reject(hash, error, relayUrl);
             return;
         }
 
-        const record = this.toRecord(decrypted);
+        const record = this.toRecord(hash, decrypted);
 
         await this.storage.envelopesPut(record);
 
@@ -182,20 +176,21 @@ export class Ingestor {
         this.onConversation(conversation, created);
     }
 
-    async isStored(uuid) {
+    async isStored(hash) {
 
-        const existing = await this.storage.envelopesGet({ uuid, limit: 1 });
+        const existing = await this.storage.envelopesGet({ hash, limit: 1 });
 
         return existing.length > 0;
     }
 
-    toRecord({ timestamp, ...decrypted }) {
+    toRecord(hash, { timestamp, ...decrypted }) {
 
         const outbound = decrypted.senderPublicKeyHex === this.publicKeyHex;
 
         this.lastReceivedAt = Math.max(this.clock.now(), this.lastReceivedAt + 1);
 
         return {
+            hash,
             ...decrypted,
             publicKeyHex: outbound
                 ? decrypted.recipientPublicKeyHex
@@ -226,10 +221,10 @@ export class Ingestor {
         return { conversation, created: !existing };
     }
 
-    reject(uuid, error, relayUrl) {
+    reject(hash, error, relayUrl) {
 
-        this.logger.warn("Envelope rejected:", { uuid, relayUrl, reason: error.message });
+        this.logger.warn("Envelope rejected:", { hash, relayUrl, reason: error.message });
 
-        this.onRejected({ uuid, reason: error.message, relayUrl });
+        this.onRejected({ hash, reason: error.message, relayUrl });
     }
 }

@@ -10,8 +10,8 @@ export class StorageServer {
     // monotonically increasing integer id
     this.nextId = 1;
 
-    // uuid uniqueness index
-    this.uuidIndex = Object.create(null);
+    // envelope hash uniqueness index
+    this.hashIndex = Object.create(null);
 
     // ============================================================
     // INTENTS
@@ -26,7 +26,7 @@ export class StorageServer {
   // ============================================================
 
   envelopesPost({
-    uuid, // universal unique identifier.
+    hash, // envelope hash: hex sha256 of the envelope bytes
     spkh, //senderPublicKeyhex
     rpkh, //recipientPublicKeyHex
     eb, //envelopeBytes
@@ -36,9 +36,9 @@ export class StorageServer {
     // validation
     // ------------------------------------------------------------
 
-    if (typeof uuid !== "string") {
+    if (typeof hash !== "string") {
       throw new Error(
-        "uuid must be string"
+        "hash must be string"
       );
     }
 
@@ -61,12 +61,12 @@ export class StorageServer {
     }
 
     // ------------------------------------------------------------
-    // enforce uuid uniqueness
+    // enforce hash uniqueness
     // ------------------------------------------------------------
 
-    if (this.uuidIndex[uuid]) {
+    if (this.hashIndex[hash]) {
       throw new Error(
-        "duplicate uuid"
+        "duplicate envelope"
       );
     }
 
@@ -76,7 +76,7 @@ export class StorageServer {
 
     const record = Object.freeze({
       id: this.nextId++,
-      uuid,
+      hash,
       spkh,
       rpkh,
       eb,
@@ -87,7 +87,7 @@ export class StorageServer {
     // ------------------------------------------------------------
 
     this.records.push(record);
-    this.uuidIndex[uuid] = record.id;
+    this.hashIndex[hash] = record.id;
 
     return record;
   }

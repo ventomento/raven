@@ -52,7 +52,6 @@ export class EnvelopeWriter {
     const w = this.#writer;
 
     w.u8(EnvelopeLayout.VERSION);
-    w.bytes(fields.uuid);
     w.bytes(fields.sender_public_key);
     w.bytes(fields.recipient_public_key);
     w.u64(fields.timestamp);
@@ -90,7 +89,6 @@ export class EnvelopeWriter {
 function validateHeaderFields(fields) {
   if (!fields) throw new Error("Missing header fields");
 
-  expectBytes(fields.uuid, SIZES.UUID, "uuid");
   expectBytes(fields.sender_public_key, SIZES.PUBKEY, "sender_public_key");
   expectBytes(fields.recipient_public_key, SIZES.PUBKEY, "recipient_public_key");
 

@@ -2,7 +2,7 @@
 
 import { ContentTypes } from "../../../index.js";
 import { decodeUtf8 } from "../../../smep/src/index.js";
-import { h } from "../dom.js";
+import { h, downloadBytes } from "../dom.js";
 import { formatBytes } from "../format.js";
 import { detectFileType } from "../file-type.js";
 
@@ -14,7 +14,7 @@ import { detectFileType } from "../file-type.js";
  */
 export function envelopeContent(envelope) {
 
-  const { plaintext, contentType, uuid } = envelope;
+  const { plaintext, contentType, hash } = envelope;
 
   if (contentType === ContentTypes.TEXT_UTF8) {
     const text = typeof plaintext === "string" ? plaintext : decodeUtf8(plaintext);
@@ -23,22 +23,12 @@ export function envelopeContent(envelope) {
 
   const bytes = typeof plaintext === "string" ? new TextEncoder().encode(plaintext) : plaintext;
   const fileType = detectFileType(bytes);
-  const filename = `smerp-${uuid.slice(0, 8)}${fileType ? `.${fileType.ext}` : ""}`;
+  const filename = `smerp-${hash.slice(0, 8)}${fileType ? `.${fileType.ext}` : ""}`;
   const label = fileType ? fileType.ext.toUpperCase() : "file";
 
   return h("button", {
     class: "download",
     type: "button",
-    onclick: () => download(bytes, filename, fileType?.mime ?? ""),
+    onclick: () => downloadBytes(bytes, filename, fileType?.mime ?? ""),
   }, `Download ${label} (${formatBytes(bytes.length)})`);
-}
-
-function download(bytes, filename, mime) {
-
-  const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
-
-  h("a", { href: url, download: filename }).click();
-
-  // Revoke after the click has been handled.
-  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

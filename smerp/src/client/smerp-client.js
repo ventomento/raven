@@ -4,8 +4,7 @@ import {
     PrivateIdentity,
     PublicIdentity,
     encrypt,
-    readEnvelope,
-    bytesToHex,
+    envelopeHash,
 } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
 import { ContentTypes } from "../../../smep/src/envelope/content-types.js";
@@ -129,8 +128,8 @@ export class SmerpClient {
                     this.publish({ type: EventTypes.ENVELOPE, envelope }),
                 onConversation: (conversation, created) =>
                     this.publish({ type: EventTypes.CONVERSATION, conversation, created }),
-                onRejected: ({ uuid, reason, relayUrl }) =>
-                    this.publish({ type: EventTypes.REJECTED, uuid, reason, relayUrl }),
+                onRejected: ({ hash, reason, relayUrl }) =>
+                    this.publish({ type: EventTypes.REJECTED, hash, reason, relayUrl }),
             });
 
             await this.buildSessions();
@@ -177,8 +176,9 @@ export class SmerpClient {
 
     /**
      * Sync all enabled relays now. Resolves when the sync is done: no
-     * relay has more to fetch right now (failing and throttled relays
-     * wait for a later sync). Publishes SYNC start and end. Never rejects.
+     * relay has more to fetch right now, or a relay used its step budget
+     * for this sync (failing and throttled relays, and the rest of a
+     * budget-capped backlog, wait for a later sync). Publishes SYNC start and end. Never rejects.
      */
     sync() {
 
@@ -206,10 +206,10 @@ export class SmerpClient {
      * plaintext: string | Uint8Array. contentType defaults to TEXT_UTF8
      * for strings, UNKNOWN for bytes. The envelope may be at most 4 MiB.
      *
-     * Resolves with { uuid, delivered, failed } once at least one relay
+     * Resolves with { hash, delivered, failed } once at least one relay
      * accepted it; throws DispatchError if none did. Nothing is stored
      * here: the envelope is stored when sync downloads it back (started
-     * here); watch for the ENVELOPE event with this uuid.
+     * here); watch for the ENVELOPE event with this hash.
      */
     async send(recipientPublicKeyHex, plaintext, { contentType = defaultContentType(plaintext) } = {}) {
 
@@ -260,7 +260,7 @@ export class SmerpClient {
         void this.sync();
 
         return {
-            uuid: bytesToHex(readEnvelope(envelopeBytes).uuid),
+            hash: await envelopeHash(envelopeBytes),
             delivered,
             failed,
         };
@@ -283,7 +283,7 @@ export class SmerpClient {
     // =====================================================
 
     /**
-     * options: {} | { uuid } | { publicKeyHex, beforeSentAt?, beforeReceivedAt?, limit? }
+     * options: {} | { hash } | { publicKeyHex, beforeSentAt?, beforeReceivedAt?, limit? }
      * Sorted newest first (sentAt, then receivedAt). To page, pass the
      * sentAt and receivedAt of the previous page's last envelope.
      */
@@ -447,6 +447,9 @@ export class SmerpClient {
             onError: (error, session) => {
                 this.logger.warn("Sync step failed:", session.relayUrl, error.message);
                 this.publish({ type: EventTypes.ERROR, error, relayUrl: session.relayUrl });
+            },
+            onCapped: session => {
+                this.logger.warn("Sync step budget used:", session.relayUrl);
             },
         });
 

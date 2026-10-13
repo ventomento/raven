@@ -10,6 +10,7 @@ export {
   decrypt,
   createEnvelope,
   decryptEnvelope,
+  envelopeHash,
 } from "./protocol/protocol.js";
 
 export { EnvelopeWriter } from "./envelope/envelope-writer.js";
@@ -45,11 +46,6 @@ export {
   base64UrlToBytes,
 } from "./encoding/base64.js";
 export { encodeUtf8, decodeUtf8 } from "./encoding/utf8.js";
-export {
-  generateUuidBytes,
-  uuidBytesToString,
-  uuidStringToBytes,
-} from "./encoding/uuid.js";
 
 // util
 export { insist } from "./util/util.js";

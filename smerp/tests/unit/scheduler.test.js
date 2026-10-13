@@ -312,6 +312,65 @@ test("wake while busy brings sessions that finished back in", async () => {
     await done;
 });
 
+test("maxStepsPerRound must be a positive integer", () => {
+
+    for (const maxStepsPerRound of [0, -1, 1.5, "2", Infinity]) {
+        assert.throws(() => new Scheduler({ maxStepsPerRound }), /positive integer/, String(maxStepsPerRound));
+    }
+
+    assert.equal(new Scheduler().maxStepsPerRound, Scheduler.DEFAULTS.maxStepsPerRound);
+});
+
+test("a session that always has more stops at its step budget; the round ends", async () => {
+
+    const capped = [];
+    const { scheduler } = setup({ concurrency: 1, maxStepsPerRound: 3, onCapped: s => capped.push(s.name) });
+    const log = [];
+
+    scheduler.add(new ScriptedSession("A", Array(10).fill(true), log));
+    scheduler.add(new ScriptedSession("B", [true], log));
+
+    await scheduler.wake();
+
+    assert.deepEqual(log, ["A", "B", "A", "B", "A"]);
+    assert.deepEqual(capped, ["A"]);
+});
+
+test("a wake during the round gives a capped session no more steps", async () => {
+
+    const { scheduler } = setup({ maxStepsPerRound: 2 });
+    const log = [];
+    const slow = new FakeSession("slow");
+
+    scheduler.add(slow);
+    scheduler.add(new ScriptedSession("A", Array(10).fill(true), log));
+
+    const done = scheduler.wake();
+    await tick();
+    assert.deepEqual(log, ["A", "A"]);
+
+    scheduler.wake();
+    await tick();
+    assert.deepEqual(log, ["A", "A"]);
+
+    slow.current.resolve(false);
+    await done;
+});
+
+test("the next round gives a capped session its steps back", async () => {
+
+    const { scheduler } = setup({ maxStepsPerRound: 2 });
+    const log = [];
+
+    scheduler.add(new ScriptedSession("A", Array(10).fill(true), log));
+
+    await scheduler.wake();
+    assert.deepEqual(log, ["A", "A"]);
+
+    await scheduler.wake();
+    assert.deepEqual(log, ["A", "A", "A", "A"]);
+});
+
 test("stop waits for running steps, starts nothing more, resolves open wakes", async () => {
 
     const { scheduler } = setup({ concurrency: 1 });

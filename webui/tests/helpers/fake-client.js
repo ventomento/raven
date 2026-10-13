@@ -19,7 +19,7 @@ export class FakeClient {
 
         // send(): throws sendError if set, else resolves sendResult.
         this.sendError = null;
-        this.sendResult = { uuid: "u".repeat(32), delivered: ["http://a.test"], failed: [] };
+        this.sendResult = { hash: "u".repeat(64), delivered: ["http://a.test"], failed: [] };
     }
 
     record(name, ...args) {
@@ -120,9 +120,9 @@ export class FakeClient {
 
 // The envelope record the client stores (see ingest/ingestor.js).
 export function envelope({
-    uuid,
+    hash,
     peer = PEER,
-    plaintext = `text ${uuid}`,
+    plaintext = `text ${hash}`,
     contentType = 1,
     direction = "inbound",
     sentAt = 1_000_000,
@@ -130,7 +130,7 @@ export function envelope({
 }) {
 
     return {
-        uuid,
+        hash,
         contentType,
         plaintext,
         senderPublicKeyHex: direction === "inbound" ? peer : "aa".repeat(32),

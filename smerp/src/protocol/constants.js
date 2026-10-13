@@ -24,3 +24,11 @@ export const MAX_ENVELOPE_BYTES = EnvelopeLayout.MAX_SIZE;
 // Largest sum of envelope lengths in one GET batch, framing not counted
 // (smerp_rfc section 4).
 export const MAX_BATCH_BYTES = 4 * 1024 * 1024;
+
+// Smallest envelope: header plus iv and tag, empty ciphertext.
+const MIN_ENVELOPE_BYTES = EnvelopeLayout.HEADER_SIZE + EnvelopeLayout.SIZES.MIN_PAYLOAD;
+
+// Largest valid GET body: a full batch of the smallest envelopes, each
+// with its 4-byte length. A client reads no more than this from a relay.
+export const MAX_RESPONSE_BYTES =
+    MAX_BATCH_BYTES + 4 * Math.floor(MAX_BATCH_BYTES / MIN_ENVELOPE_BYTES);

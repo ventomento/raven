@@ -55,7 +55,7 @@ async function pipeline(relays, { concurrency = 6 } = {}) {
         identity: bob,
         storage,
         logger,
-        onEnvelope: envelope => announced.push(envelope.uuid),
+        onEnvelope: envelope => announced.push(envelope.hash),
     });
 
     const errors = [];
@@ -156,7 +156,7 @@ test("an envelope on two relays is stored and counted once", async (t) => {
 
     await bob.scheduler.wake();
 
-    assert.deepEqual(bob.announced, [envelope.uuid]);
+    assert.deepEqual(bob.announced, [envelope.hash]);
     assert.equal((await bob.storage.conversationsGet())[0].unreadCount, 1);
     assert.equal(bob.saved.get(one.relay.relayUrl).cursor, 1);
     assert.equal(bob.saved.get(two.relay.relayUrl).cursor, 1);

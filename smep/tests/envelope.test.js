@@ -10,7 +10,7 @@ import { EnvelopeLayout } from "../src/envelope/layout.js";
 const { HEADER_SIZE, MAX_SIZE, SIZES } = EnvelopeLayout;
 
 // payload_size offset: 1 + 16 + 32 + 32 + 8 + 1 = 90
-const PAYLOAD_SIZE_OFFSET = 90;
+const PAYLOAD_SIZE_OFFSET = 74;
 
 function randomBytes(length) {
   const arr = new Uint8Array(length);
@@ -24,7 +24,6 @@ function randomBytes(length) {
 
 function createHeaderFields() {
   return {
-    uuid: randomBytes(SIZES.UUID),
     sender_public_key: randomBytes(SIZES.PUBKEY),
     recipient_public_key: randomBytes(SIZES.PUBKEY),
     timestamp: 1234567890123456789n,
@@ -68,7 +67,6 @@ test("write -> read roundtrip", () => {
   const envelope = readEnvelope(buffer);
 
   assert.equal(envelope.version, EnvelopeLayout.VERSION);
-  assert.deepEqual(envelope.uuid, fields.uuid);
   assert.deepEqual(envelope.sender_public_key, fields.sender_public_key);
   assert.deepEqual(envelope.recipient_public_key, fields.recipient_public_key);
   assert.equal(envelope.timestamp, fields.timestamp);
@@ -187,16 +185,6 @@ test("writeBody rejects a body of the wrong length", () => {
   );
 });
 
-test("rejects invalid uuid length", () => {
-  const fields = createHeaderFields();
-
-  fields.uuid = randomBytes(15);
-
-  assert.throws(
-    () => newWriter().writeHeader(fields),
-    /uuid must be 16 bytes/
-  );
-});
 
 test("rejects invalid timestamp type", () => {
   const fields = createHeaderFields();

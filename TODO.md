@@ -16,11 +16,11 @@ from reading the code.
   Fix options:
   - Add a proof only the sender can make, e.g. `HMAC(SHA256(X25519(a, A)), header)`
     inside the plaintext (works across devices sharing the identity).
-  - Or reject self-sent envelopes whose uuid we never sent (breaks multi-device).
+  - Or reject self-sent envelopes whose hash we never sent (breaks multi-device).
   - Full fix: per-message sender signatures (Ed25519), a protocol change.
   Needs smep_rfc changes.
 
-- [ ] **2. uuid squatting lets one hostile relay/peer drop a chosen message.**
+- [x] **2. uuid squatting lets one hostile relay/peer drop a chosen message.**
   The uuid is plaintext in the header and the client dedups on uuid alone before
   decrypting (`smerp/src/ingest/ingestor.js:161`). Anyone who sees Alice→Bob's
   uuid U (any relay or federation peer) can send a valid `Mallory→Bob` envelope
@@ -32,20 +32,26 @@ from reading the code.
   - Client: dedup on `(uuid, sender, recipient)` or a hash of the full envelope.
   - Relays: a uuid is a duplicate only if the bytes are identical.
   Needs smerp_rfc changes.
+  Done (smep v3): the uuid is gone; an envelope's hash is sha256 of its bytes
+  (`envelopeHash`, smep_rfc section 6), and clients and relays dedup only on it.
 
 ## Medium
 
-- [ ] **3. A malicious relay can keep sync from ever finishing.**
+- [x] **3. A malicious relay can keep sync from ever finishing.**
   A relay that always returns 200 with a bigger cursor, or a 401 with a new relay
   key, makes `step()` keep returning `true`. The scheduler's `whenDone` never
   resolves, so `sync()` never resolves and `SYNC end` never fires for any relay,
   while the client keeps fetching at ~2 req/s.
   Fix: cap steps per session per sync.
+  Done: `Scheduler` gives each session at most `maxStepsPerRound` (50) steps
+  per round; a wake during the round does not restart a capped session.
 
-- [ ] **4. No limit on response size.**
+- [x] **4. No limit on response size.**
   `smerp/src/transport/transport-default.js:38` reads the whole body with
   `arrayBuffer()`; a relay can send gigabytes within the 30 s timeout.
   Fix: stream the body and abort past `MAX_BATCH_BYTES` plus framing.
+  Done: `TransportDefault` streams and rejects past `maxBytes`
+  (default `MAX_RESPONSE_BYTES`, the largest valid batch with framing).
 
 - [ ] **5. Sender-chosen timestamps drive ordering.**
   `sentAt` comes from the sender's clock and sets `lastMessageAt`
@@ -61,9 +67,10 @@ from reading the code.
   attack found, but one key for two primitives is unsound.
   Fix: derive separately with HKDF and labels (`"smep-envelope"`, `"smerp-auth"`).
 
-- [ ] **7. Fetch follows redirects.**
+- [x] **7. Fetch follows redirects.**
   A relay can redirect signed requests to another origin.
   Fix: `redirect: "error"` in `TransportDefault`.
+  Done, set after the caller's options so they cannot override it.
 
 - [ ] **8. Insecure relay URLs accepted.**
   `relaysPut` accepts `http://` and then sends the bearer token in cleartext.

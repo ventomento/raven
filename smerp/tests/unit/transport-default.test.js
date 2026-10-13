@@ -81,3 +81,68 @@ test("a refused connection rejects", async () => {
 
     await assert.rejects(TransportDefault.transport({ url: "http://127.0.0.1:1", logger: new RecordingLogger() }));
 });
+
+test("a body over maxBytes rejects, with or without Content-Length", async (t) => {
+
+    for (const chunked of [false, true]) {
+
+        const url = await startServer(t, (request, response) => {
+            response.writeHead(200, chunked ? {} : { "content-length": "11" });
+            if (chunked) {
+                response.write(Buffer.alloc(6));
+            }
+            response.end(Buffer.alloc(chunked ? 5 : 11));
+        });
+
+        await assert.rejects(
+            TransportDefault.transport({ url, maxBytes: 10, logger: new RecordingLogger() }),
+            /larger than 10 bytes/,
+            chunked ? "chunked" : "content-length"
+        );
+    }
+});
+
+test("a body of exactly maxBytes is returned whole; an empty one as empty bytes", async (t) => {
+
+    const url = await startServer(t, (request, response) => {
+        if (request.url === "/empty") {
+            response.writeHead(204);
+            response.end();
+            return;
+        }
+        response.writeHead(200);
+        response.write(Buffer.alloc(4, 1));
+        response.end(Buffer.alloc(6, 2));
+    });
+
+    const full = await TransportDefault.transport({ url, maxBytes: 10, logger: new RecordingLogger() });
+    assert.deepEqual(Array.from(full.body), [1, 1, 1, 1, 2, 2, 2, 2, 2, 2]);
+
+    const empty = await TransportDefault.transport({ url: `${url}/empty`, maxBytes: 10, logger: new RecordingLogger() });
+    assert.equal(empty.status, 204);
+    assert.ok(empty.body instanceof Uint8Array);
+    assert.equal(empty.body.byteLength, 0);
+});
+
+test("redirects are not followed, even if the options ask for it", async (t) => {
+
+    let reached = false;
+
+    const target = await startServer(t, (request, response) => {
+        reached = true;
+        response.end();
+    });
+
+    const url = await startServer(t, (request, response) => {
+        response.writeHead(302, { location: `${target}/envelopes` });
+        response.end();
+    });
+
+    await assert.rejects(TransportDefault.transport({
+        url,
+        options: { redirect: "follow" },
+        logger: new RecordingLogger(),
+    }));
+
+    assert.equal(reached, false);
+});

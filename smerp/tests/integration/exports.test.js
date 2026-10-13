@@ -26,7 +26,7 @@ test("raven/smerp: the building blocks", () => {
         "SmerpClient", "EventBus", "EventTypes",
         "StorageInterface", "StorageMemory", "IndexedDbStorage",
         "TransportInterface", "TransportDefault",
-        "SmerpHeaders", "Status", "MAX_ENVELOPE_BYTES", "MAX_BATCH_BYTES",
+        "SmerpHeaders", "Status", "MAX_ENVELOPE_BYTES", "MAX_BATCH_BYTES", "MAX_RESPONSE_BYTES",
         "encodeBatch", "decodeBatch", "parseCursor",
         "Scheduler", "RelaySession", "RequestBuilder", "Ingestor",
         "ConcurrencyLimiter", "TokenBucket", "RealClock",

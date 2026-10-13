@@ -21,7 +21,7 @@ export class ThreadView {
     this.publicKeyHex = publicKeyHex;
     this.list = null;
     this.olderButton = null;
-    this.shown = new Set();   // uuids in the list
+    this.shown = new Set();   // envelope hashes in the list
     this.oldest = null;       // last envelope of the last page loaded
   }
 
@@ -100,8 +100,8 @@ export class ThreadView {
 
     // Storage returns newest first, which is display order.
     for (const envelope of envelopes) {
-      if (!this.shown.has(envelope.uuid)) {
-        this.shown.add(envelope.uuid);
+      if (!this.shown.has(envelope.hash)) {
+        this.shown.add(envelope.hash);
         this.list.append(this.#item(envelope));
       }
     }
@@ -115,11 +115,11 @@ export class ThreadView {
 
   #prepend(envelope) {
 
-    if (!this.list || this.shown.has(envelope.uuid)) {
+    if (!this.list || this.shown.has(envelope.hash)) {
       return;
     }
 
-    this.shown.add(envelope.uuid);
+    this.shown.add(envelope.hash);
     this.list.querySelector(":scope > .empty")?.remove();
     this.list.prepend(this.#item(envelope));
   }

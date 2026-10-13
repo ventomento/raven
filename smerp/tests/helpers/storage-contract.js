@@ -4,13 +4,13 @@
 
 import assert from "node:assert/strict";
 
-const envelope = (uuid, sentAt, receivedAt, publicKeyHex = "conversationA") => ({
-    uuid,
+const envelope = (hash, sentAt, receivedAt, publicKeyHex = "conversationA") => ({
+    hash,
     publicKeyHex,
     senderPublicKeyHex: "s",
     recipientPublicKeyHex: "r",
     contentType: 1,
-    plaintext: uuid,
+    plaintext: hash,
     sentAt,
     receivedAt,
 });
@@ -48,17 +48,17 @@ export function storageContract(test, makeStorage) {
         return storage;
     }
 
-    const uuids = (list) => list.map(e => e.uuid);
+    const hashes = (list) => list.map(e => e.hash);
 
     test("all envelopes newest first, ties by receivedAt", async (t) => {
         const storage = await seeded(t);
-        assert.deepEqual(uuids(await storage.envelopesGet()), ["x", "e", "d", "c", "b", "a"]);
+        assert.deepEqual(hashes(await storage.envelopesGet()), ["x", "e", "d", "c", "b", "a"]);
     });
 
     test("conversation envelopes newest first, ties by receivedAt", async (t) => {
         const storage = await seeded(t);
         assert.deepEqual(
-            uuids(await storage.envelopesGet({ publicKeyHex: "conversationA" })),
+            hashes(await storage.envelopesGet({ publicKeyHex: "conversationA" })),
             ["e", "d", "c", "b", "a"]
         );
     });
@@ -66,7 +66,7 @@ export function storageContract(test, makeStorage) {
     test("beforeSentAt alone is exclusive of the whole second", async (t) => {
         const storage = await seeded(t);
         assert.deepEqual(
-            uuids(await storage.envelopesGet({ publicKeyHex: "conversationA", beforeSentAt: 3000 })),
+            hashes(await storage.envelopesGet({ publicKeyHex: "conversationA", beforeSentAt: 3000 })),
             ["c", "b", "a"]
         );
     });
@@ -74,7 +74,7 @@ export function storageContract(test, makeStorage) {
     test("beforeSentAt with beforeReceivedAt is exclusive of the pair", async (t) => {
         const storage = await seeded(t);
         assert.deepEqual(
-            uuids(await storage.envelopesGet({
+            hashes(await storage.envelopesGet({
                 publicKeyHex: "conversationA",
                 beforeSentAt: 3000,
                 beforeReceivedAt: 3400,
@@ -101,7 +101,7 @@ export function storageContract(test, makeStorage) {
                 break;
             }
 
-            seen.push(...uuids(page));
+            seen.push(...hashes(page));
 
             const last = page.at(-1);
             position = { beforeSentAt: last.sentAt, beforeReceivedAt: last.receivedAt };
@@ -110,23 +110,23 @@ export function storageContract(test, makeStorage) {
         assert.deepEqual(seen, ["e", "d", "c", "b", "a"]);
     });
 
-    test("uuid lookup", async (t) => {
+    test("hash lookup", async (t) => {
         const storage = await seeded(t);
-        assert.deepEqual(uuids(await storage.envelopesGet({ uuid: "c" })), ["c"]);
-        assert.deepEqual(await storage.envelopesGet({ uuid: "missing" }), []);
+        assert.deepEqual(hashes(await storage.envelopesGet({ hash: "c" })), ["c"]);
+        assert.deepEqual(await storage.envelopesGet({ hash: "missing" }), []);
     });
 
     test("envelopes: limit caps the result, newest kept", async (t) => {
         const storage = await seeded(t);
-        assert.deepEqual(uuids(await storage.envelopesGet({ limit: 2 })), ["x", "e"]);
+        assert.deepEqual(hashes(await storage.envelopesGet({ limit: 2 })), ["x", "e"]);
     });
 
-    test("envelopes: put returns the uuid and replaces the whole record", async (t) => {
+    test("envelopes: put returns the hash and replaces the whole record", async (t) => {
         const storage = await seeded(t);
 
-        assert.equal(await storage.envelopesPut({ uuid: "a", sentAt: 1, receivedAt: 1 }), "a");
+        assert.equal(await storage.envelopesPut({ hash: "a", sentAt: 1, receivedAt: 1 }), "a");
 
-        const [a] = await storage.envelopesGet({ uuid: "a" });
+        const [a] = await storage.envelopesGet({ hash: "a" });
         assert.equal(a.sentAt, 1);
         assert.equal(a.publicKeyHex, undefined, "fields are not merged");
         assert.equal((await storage.envelopesGet()).length, FIXTURE.length);
@@ -138,7 +138,7 @@ export function storageContract(test, makeStorage) {
 
         await storage.envelopesPut({ ...envelope("bin", 1, 1), plaintext });
 
-        const [stored] = await storage.envelopesGet({ uuid: "bin" });
+        const [stored] = await storage.envelopesGet({ hash: "bin" });
         assert.ok(stored.plaintext instanceof Uint8Array);
         assert.deepEqual(stored.plaintext, plaintext);
     });
@@ -193,9 +193,9 @@ export function storageContract(test, makeStorage) {
         assert.equal((await storage.relaysGet())[0].relayType, "archive");
 
         await storage.envelopesPut(envelope("u", 1, 1));
-        (await storage.envelopesGet({ uuid: "u" }))[0].plaintext = "mutated";
+        (await storage.envelopesGet({ hash: "u" }))[0].plaintext = "mutated";
         (await storage.envelopesGet())[0].sentAt = 0;
-        const [stored] = await storage.envelopesGet({ uuid: "u" });
+        const [stored] = await storage.envelopesGet({ hash: "u" });
         assert.equal(stored.plaintext, "u");
         assert.equal(stored.sentAt, 1);
     });

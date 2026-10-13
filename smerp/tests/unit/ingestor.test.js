@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ContentTypes } from "../../../smep/src/index.js";
+import { ContentTypes, envelopeHash } from "../../../smep/src/index.js";
 import { Ingestor } from "../../src/ingest/ingestor.js";
 import { StorageMemory } from "../../src/storage/storage-memory.js";
 import { VirtualClock } from "../helpers/fakes.js";
@@ -49,13 +49,13 @@ test("an inbound envelope is stored, its conversation created, envelope announce
 
     await ingestor.ingest([sent.buffer], RELAY_URL);
 
-    const [stored] = await storage.envelopesGet({ uuid: sent.uuid });
+    const [stored] = await storage.envelopesGet({ hash: sent.hash });
 
     assert.ok(stored.sentAt >= before && stored.sentAt <= after);
     assert.equal(stored.sentAt % 1000, 0, "whole wire seconds as ms");
 
     assert.deepEqual(stored, {
-        uuid: sent.uuid,
+        hash: sent.hash,
         contentType: ContentTypes.TEXT_UTF8,
         plaintext: "hello bob",
         senderPublicKeyHex: alice.publicKeyHex,
@@ -83,7 +83,7 @@ test("bytes keep their content type and stay bytes", async () => {
     const sent = await envelopeFor(alice, bob, plaintext, { contentType: ContentTypes.FILE });
     await ingestor.ingest([sent.buffer]);
 
-    const [stored] = await storage.envelopesGet({ uuid: sent.uuid });
+    const [stored] = await storage.envelopesGet({ hash: sent.hash });
     assert.equal(stored.contentType, ContentTypes.FILE);
     assert.deepEqual(stored.plaintext, plaintext);
 });
@@ -95,7 +95,7 @@ test("our own envelope is outbound, filed under the recipient, never unread", as
     const sent = await envelopeFor(bob, alice, "hi alice");
     await ingestor.ingest([sent.buffer]);
 
-    const [stored] = await storage.envelopesGet({ uuid: sent.uuid });
+    const [stored] = await storage.envelopesGet({ hash: sent.hash });
     assert.equal(stored.direction, "outbound");
     assert.equal(stored.publicKeyHex, alice.publicKeyHex);
     assert.equal(stored.plaintext, "hi alice");
@@ -176,13 +176,31 @@ test("dedup comes before decryption", async () => {
 
     const { bob, alice, carol, storage, ingestor, events } = await setup();
 
-    // Bob cannot decrypt this, but its uuid is already stored.
+    // Bob cannot decrypt this, but its hash is already stored.
     const notForBob = await envelopeFor(alice, carol);
-    await storage.envelopesPut({ uuid: notForBob.uuid });
+    await storage.envelopesPut({ hash: notForBob.hash });
 
     await ingestor.ingest([notForBob.buffer]);
 
     assert.deepEqual(events, []);
+});
+
+test("a squatter's envelope copying a header cannot get the real one skipped", async () => {
+
+    const { bob, alice, ingestor, storage, of } = await setup();
+
+    // A squatter can copy every header byte, but not the bytes as a whole,
+    // so its envelope has a different hash and cannot block the real one.
+    const real = await envelopeFor(alice, bob, "the real one");
+
+    const forged = new Uint8Array(real.bytes);
+    forged[forged.length - 1] ^= 0xff;   // same header, broken tag
+
+    await ingestor.ingest([forged.buffer, real.buffer]);
+
+    assert.equal(of("rejected").length, 1);
+    assert.deepEqual((await storage.envelopesGet()).map(e => e.hash), [real.hash]);
+    assert.equal((await storage.envelopesGet({ hash: real.hash }))[0].plaintext, "the real one");
 });
 
 test("unreadable and undecryptable envelopes are rejected; the batch goes on", async () => {
@@ -192,19 +210,21 @@ test("unreadable and undecryptable envelopes are rejected; the batch goes on", a
     const notForBob = await envelopeFor(alice, carol);
     const good = await envelopeFor(alice, bob);
 
-    await ingestor.ingest([garbageFrame(), notForBob.buffer, good.buffer], RELAY_URL);
+    const garbage = garbageFrame();
+
+    await ingestor.ingest([garbage, notForBob.buffer, good.buffer], RELAY_URL);
 
     const rejected = of("rejected");
     assert.equal(rejected.length, 2);
 
-    assert.equal(rejected[0].uuid, null);
+    assert.equal(rejected[0].hash, await envelopeHash(garbage));
     assert.equal(rejected[0].relayUrl, RELAY_URL);
     assert.equal(typeof rejected[0].reason, "string");
 
-    assert.equal(rejected[1].uuid, notForBob.uuid);
+    assert.equal(rejected[1].hash, notForBob.hash);
     assert.equal(rejected[1].relayUrl, RELAY_URL);
 
-    assert.deepEqual((await storage.envelopesGet()).map(e => e.uuid), [good.uuid]);
+    assert.deepEqual((await storage.envelopesGet()).map(e => e.hash), [good.hash]);
 });
 
 test("a storage error rejects the ingest, and later ingests still run", async () => {

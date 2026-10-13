@@ -10,9 +10,11 @@ import {
     ContentTypes,
     PrivateIdentity,
 } from "../../../index.js";
-import { readEnvelope, bytesToHex } from "../../../smep/src/index.js";
+import { readEnvelope, bytesToHex, envelopeHash } from "../../../smep/src/index.js";
 import { StorageMemory } from "../../src/storage/storage-memory.js";
 import { VirtualClock, FakeRelays, tick } from "../helpers/fakes.js";
+import { Scheduler } from "../../src/sync/scheduler.js";
+import { encodeBatch } from "../../src/protocol/index.js";
 import { identity, envelopeFor, garbageFrame, deferred } from "../helpers/relay-fixtures.js";
 
 // SmerpClient's own wiring, with FakeRelays as transport and virtual
@@ -251,7 +253,7 @@ test("a synced envelope is announced: ENVELOPE, then CONVERSATION", async (t) =>
     await tick();
 
     const [{ envelope }] = of(EventTypes.ENVELOPE);
-    assert.equal(envelope.uuid, sent.uuid);
+    assert.equal(envelope.hash, sent.hash);
     assert.equal(envelope.direction, "inbound");
 
     const [{ conversation, created }] = of(EventTypes.CONVERSATION);
@@ -267,12 +269,14 @@ test("an unreadable envelope is reported as REJECTED with its relay", async (t) 
 
     const { relays, of, sync } = await startFakeClient(t, { relayUrls: [A] });
 
-    relays.add(A, new Uint8Array(garbageFrame()));
+    const garbage = new Uint8Array(garbageFrame());
+
+    relays.add(A, garbage);
     await sync();
     await tick();
 
     const [rejected] = of(EventTypes.REJECTED);
-    assert.equal(rejected.uuid, null);
+    assert.equal(rejected.hash, await envelopeHash(garbage));
     assert.equal(rejected.relayUrl, A);
     assert.equal(typeof rejected.reason, "string");
 });
@@ -324,6 +328,34 @@ test("a relay failure is saved, announced as RELAY and ERROR once, then backed o
     assert.equal(of(EventTypes.ERROR).length, 1);
 });
 
+test("a relay that always has more cannot keep a sync open", async (t) => {
+
+    const hostile = {
+        "always a bigger cursor": (request) => ({
+            status: 200,
+            headers: { "x-smerp-cursor": String(request.cursor + 1) },
+            body: encodeBatch([new Uint8Array(garbageFrame())]),
+        }),
+        "always a new relay key": () => ({
+            status: 401,
+            headers: { "x-smerp-relay-pkh": bytesToHex(crypto.getRandomValues(new Uint8Array(32))) },
+        }),
+    };
+
+    for (const [name, respond] of Object.entries(hostile)) {
+
+        const { relays, of, sync } = await startFakeClient(t, { relayUrls: [A, B] });
+        const before = gets(relays, A).length;
+
+        relays.hook = (request) => request.method === "GET" && request.relayUrl === A ? respond(request) : null;
+
+        await sync();
+
+        assert.equal(gets(relays, A).length - before, Scheduler.DEFAULTS.maxStepsPerRound, name);
+        assert.equal(of(EventTypes.SYNC).at(-1).phase, "end", name);
+    }
+});
+
 test("a save that only moves lastSuccessAt is not announced", async (t) => {
 
     const { client, clock, of, sync } = await startFakeClient(t, { relayUrls: [A] });
@@ -370,7 +402,7 @@ test("send: content type defaults to TEXT_UTF8 for strings, UNKNOWN for bytes", 
     );
 });
 
-test("send: encrypts once, posts the same bytes to every relay, returns its uuid", async (t) => {
+test("send: encrypts once, posts the same bytes to every relay, returns its hash", async (t) => {
 
     const { client, relays } = await startFakeClient(t, { relayUrls: [A, B] });
     const bob = await identity();
@@ -381,7 +413,7 @@ test("send: encrypts once, posts the same bytes to every relay, returns its uuid
     const [toB] = posts(relays, B);
 
     assert.deepEqual(new Uint8Array(toA.body), new Uint8Array(toB.body));
-    assert.equal(result.uuid, bytesToHex(readEnvelope(toA.body).uuid));
+    assert.equal(result.hash, await envelopeHash(toA.body));
     assert.deepEqual(result.delivered.sort(), [A, B]);
     assert.deepEqual(result.failed, []);
 
@@ -450,7 +482,7 @@ test("send: stores nothing itself; the envelope arrives through sync", async (t)
     await sync();
 
     const [stored] = await client.envelopesGet();
-    assert.equal(stored.uuid, sent.uuid);
+    assert.equal(stored.hash, sent.hash);
     assert.equal(stored.direction, "outbound");
     assert.equal(stored.publicKeyHex, bob.publicKeyHex);
 });

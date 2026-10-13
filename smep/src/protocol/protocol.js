@@ -15,7 +15,7 @@ import {
 } from "../crypto/aes-gcm.js";
 
 import { randomIV } from "../crypto/random.js";
-import { generateUuidBytes } from "../encoding/uuid.js";
+import { sha256 } from "../crypto/hash.js";
 import { encodeUtf8, decodeUtf8 } from "../encoding/utf8.js";
 import { bytesToHex } from "../encoding/hex.js";
 import { EnvelopeWriter } from "../envelope/envelope-writer.js";
@@ -73,7 +73,6 @@ export async function createEnvelope({
   const writer = new EnvelopeWriter(EnvelopeWriter.size(plaintextBytes.length));
 
   const header = writer.writeHeader({
-    uuid: generateUuidBytes(),
     sender_public_key: await exportPublicKeyBytes(sender.publicKey),
     recipient_public_key: await exportPublicKeyBytes(recipient.publicKey),
     timestamp: BigInt(Math.floor(Date.now() / 1000)),
@@ -92,6 +91,17 @@ export async function createEnvelope({
   writer.writeBody({ aes_gcm_iv, ciphertext_with_tag });
 
   return writer.finish();
+}
+
+// The envelope's hash: hex SHA-256 of its complete bytes (smep_rfc section 6).
+// Computed, never carried in the envelope, so it cannot be claimed by a
+// different envelope. Takes an ArrayBuffer or Uint8Array.
+export async function envelopeHash(envelopeBytes) {
+  const bytes = envelopeBytes instanceof ArrayBuffer
+    ? new Uint8Array(envelopeBytes)
+    : envelopeBytes;
+
+  return bytesToHex(await sha256(bytes));
 }
 
 // Takes an envelope from readEnvelope.
@@ -133,7 +143,6 @@ export async function decryptEnvelope({
     contentType: envelope.content_type,
     plaintext,
     timestamp: Number(envelope.timestamp),
-    uuid: bytesToHex(envelope.uuid),
   });
 }
 

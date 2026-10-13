@@ -23,6 +23,7 @@ export {
     Status,
     MAX_ENVELOPE_BYTES,
     MAX_BATCH_BYTES,
+    MAX_RESPONSE_BYTES,
     encodeBatch,
     decodeBatch,
     parseCursor,

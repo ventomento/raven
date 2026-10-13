@@ -5,8 +5,7 @@ import {
     PrivateIdentity,
     PublicIdentity,
     encrypt,
-    readEnvelope,
-    bytesToHex,
+    envelopeHash,
 } from "../../../smep/src/index.js";
 import { SmerpServer } from "../../src/server/index.js";
 import { StorageMemory } from "../../src/storage/storage-memory.js";
@@ -15,8 +14,9 @@ export const identity = () => PrivateIdentity.generate();
 
 /**
  * A real envelope from sender to recipient (PrivateIdentity or
- * PublicIdentity). Returns { bytes, buffer, uuid }: bytes as encrypt gives
- * them, buffer as a frame from decodeBatch (its own ArrayBuffer), uuid as hex.
+ * PublicIdentity). Returns { bytes, buffer, hash }: bytes as encrypt gives
+ * them, buffer as a frame from decodeBatch (its own ArrayBuffer), hash the
+ * envelope hash (hex sha256, smep_rfc section 6).
  */
 export async function envelopeFor(sender, recipient, plaintext = "hi", options = {}) {
 
@@ -30,7 +30,7 @@ export async function envelopeFor(sender, recipient, plaintext = "hi", options =
     return {
         bytes: new Uint8Array(buffer),
         buffer,
-        uuid: bytesToHex(readEnvelope(buffer).uuid),
+        hash: await envelopeHash(buffer),
     };
 }
 
