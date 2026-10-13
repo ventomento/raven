@@ -5,7 +5,8 @@ import { h, replaceChildren, downloadBytes } from "../dom.js";
 /**
  * The client's own keys, and what the user needs to know about them. The
  * private key stays hidden until revealed; backing it up is the user's
- * job, so it can be copied or downloaded as a text file.
+ * job, so it can be downloaded as a text file. It has no copy button:
+ * the clipboard is readable by other apps and kept in clipboard history.
  */
 export class IdentityView {
 
@@ -51,7 +52,6 @@ export class IdentityView {
         privateValue,
         h("div", { class: "form-row" },
           revealButton,
-          copyButton(() => this.identity.exportPrivateHex()),
           h("button", {
             class: "ghost",
             type: "button",

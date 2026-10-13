@@ -26,7 +26,7 @@ export class SendView {
 
     replaceChildren(container,
       h("h2", {}, "New message"),
-      compose.el
+      h("section", { class: "card" }, compose.el)
     );
 
     if (this.recipientPublicKeyHex) {

@@ -401,6 +401,10 @@
   margin-bottom: calc(var(--gap) * 1.5);
 }
 
+.webui .card > .compose {
+  margin-bottom: 0;
+}
+
 .webui .message {
   max-width: 85%;
   padding: 8px 12px;

@@ -7,9 +7,10 @@
 
   then open http://localhost:8080/webui/demo/
 
-  Keys are never stored: paste a private key or generate a new identity on
-  each load. Message history is kept in IndexedDB per identity, so pasting
-  the same key again brings it back.
+  Keys are never stored: open a key file or generate a new identity on each
+  load. A key file is what the Identity view's Download saves: the private
+  key in hex on its first line. Message history is kept in IndexedDB per
+  identity, so opening the same key file again brings it back.
 
   The mock relay below is seeded on start.
 
@@ -49,7 +50,6 @@
       background: transparent;
       color: inherit;
     }
-    input { font-family: ui-monospace, Menlo, Consolas, monospace; }
     button { cursor: pointer; }
     button[type="submit"] { background: #2f6fec; border-color: #2f6fec; color: #fff; font-weight: 600; }
     .or { text-align: center; opacity: 0.6; }
@@ -60,8 +60,8 @@
 
   <form id="login">
     <h1>smerp</h1>
-    <input id="key" type="password" placeholder="Private key (hex)" autocomplete="off">
-    <button type="submit">Open</button>
+    <input id="key-file" type="file" hidden>
+    <button type="submit">Open key file</button>
     <div class="or">or</div>
     <button id="generate" type="button">Generate new identity</button>
     <div class="error" id="error" role="alert"></div>
@@ -89,9 +89,28 @@
       }
     }
 
+    const keyFile = document.getElementById("key-file");
+
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      void open(document.getElementById("key").value.trim());
+      keyFile.click();
+    });
+
+    // The private key is the first line of the file.
+    keyFile.addEventListener("change", async () => {
+      const [file] = keyFile.files;
+      // Cleared so choosing the same file again fires change again.
+      keyFile.value = "";
+      if (!file) {
+        return;
+      }
+      errorLine.textContent = "";
+      const privateKeyHex = (await file.text()).split(/\r?\n/, 1)[0].trim();
+      if (!privateKeyHex) {
+        errorLine.textContent = "The key file's first line is empty.";
+        return;
+      }
+      void open(privateKeyHex);
     });
 
     document.getElementById("generate").addEventListener("click", async () => {
