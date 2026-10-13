@@ -12,6 +12,19 @@ export function shortHex(hex, head = 8, tail = 4) {
   return `${hex.slice(0, head)}…${hex.slice(-tail)}`;
 }
 
+/**
+ * What to call a conversation's peer: the user's name for it, "Note to
+ * self" for our own key, else null (show the key).
+ */
+export function peerLabel({ publicKeyHex, name }, ownPublicKeyHex) {
+
+  if (name) {
+    return name;
+  }
+
+  return publicKeyHex === ownPublicKeyHex ? "Note to self" : null;
+}
+
 /** Time only for today, date and time otherwise. ms since epoch. */
 export function formatTime(ms, now = Date.now()) {
 

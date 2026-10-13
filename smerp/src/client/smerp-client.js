@@ -47,7 +47,7 @@ const NOTIFY_FIELDS = Object.freeze([
 
 /**
  * Reference smerp client. Headless: a UI reads local data through the
- * get methods, acts through send/markRead/relays*, and reacts to events
+ * get methods, acts through send/markRead/renameConversation/relays*, and reacts to events
  * subscribed with on().
  *
  * Built from three modules:
@@ -319,6 +319,20 @@ export class SmerpClient {
         this.assertRunning();
 
         return this.ingestor.markRead(publicKeyHex);
+    }
+
+    /**
+     * Set the conversation's name (a local label for the peer, never
+     * sent), or remove it with "". Trimmed and cut to
+     * MAX_CONVERSATION_NAME characters. Runs in line with ingestion, so
+     * neither loses the other's write. Resolves with the conversation, or
+     * null if there is none.
+     */
+    async renameConversation(publicKeyHex, name) {
+
+        this.assertRunning();
+
+        return this.ingestor.rename(publicKeyHex, name);
     }
 
     // =====================================================

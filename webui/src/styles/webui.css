@@ -163,7 +163,7 @@
 }
 
 .webui button {
-  padding: 8px 14px;
+  padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -288,8 +288,7 @@
   background: var(--surface);
 }
 
-.webui section.card + section.card,
-.webui form.card + section.card,
+.webui .card + .card,
 .webui .list + .card {
   margin-top: var(--gap);
 }
@@ -304,7 +303,7 @@
   text-align: left;
 }
 
-.webui .row.unread .row-main .mono {
+.webui .row.unread .row-primary {
   font-weight: 700;
 }
 
@@ -315,8 +314,8 @@
   min-width: 0;
 }
 
-.webui .row-main .mono,
-.webui .thread-title .mono {
+.webui .row-main > *,
+.webui .thread-title > * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -396,6 +395,27 @@
   align-items: center;
   gap: var(--gap);
   margin-bottom: var(--gap);
+}
+
+.webui .thread-title {
+  flex: 1;
+}
+
+.webui .thread-name {
+  font-weight: 600;
+}
+
+.webui .rename {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+}
+
+.webui .rename input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
 }
 
 .webui .compose {

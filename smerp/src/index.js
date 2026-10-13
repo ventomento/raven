@@ -33,7 +33,7 @@ export {
 export { Scheduler } from "./sync/scheduler.js";
 export { RelaySession } from "./session/relay-session.js";
 export { RequestBuilder } from "./session/request-builder.js";
-export { Ingestor } from "./ingest/ingestor.js";
+export { Ingestor, MAX_CONVERSATION_NAME } from "./ingest/ingestor.js";
 
 // generic building blocks
 export { ConcurrencyLimiter } from "./lib/concurrency-limiter.js";

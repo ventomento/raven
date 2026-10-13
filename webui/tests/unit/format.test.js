@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { shortHex, formatTime, formatBytes, parsePublicKeyHex } from "../../src/format.js";
+import { shortHex, peerLabel, formatTime, formatBytes, parsePublicKeyHex } from "../../src/format.js";
 
 test("shortHex: shortens long hex, keeps head and tail", () => {
   const hex = "0123456789abcdef0123456789abcdef";
@@ -10,6 +10,15 @@ test("shortHex: shortens long hex, keeps head and tail", () => {
 test("shortHex: leaves short hex unchanged", () => {
   assert.equal(shortHex("abcdef"), "abcdef");
   assert.equal(shortHex(undefined), "");
+});
+
+test("peerLabel: the name, else 'Note to self' for our own key, else null", () => {
+    const own = "aa".repeat(32);
+    const peer = "bb".repeat(32);
+    assert.equal(peerLabel({ publicKeyHex: peer, name: "Alice" }, own), "Alice");
+    assert.equal(peerLabel({ publicKeyHex: own, name: "Me" }, own), "Me");
+    assert.equal(peerLabel({ publicKeyHex: own }, own), "Note to self");
+    assert.equal(peerLabel({ publicKeyHex: peer }, own), null);
 });
 
 test("formatTime: 'never' for missing time", () => {

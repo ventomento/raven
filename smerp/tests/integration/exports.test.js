@@ -15,7 +15,7 @@ test("raven: the client and what a consumer needs to use it", () => {
 
     assert.deepEqual(missing(root, [
         "SmerpClient", "ClientStatus", "SmerpError", "NotStartedError", "DispatchError",
-        "EventTypes", "StorageMemory", "IndexedDbStorage",
+        "EventTypes", "MAX_CONVERSATION_NAME", "StorageMemory", "IndexedDbStorage",
         "PrivateIdentity", "PublicIdentity", "ContentTypes",
     ]), []);
 });
@@ -28,7 +28,7 @@ test("raven/smerp: the building blocks", () => {
         "TransportInterface", "TransportDefault",
         "SmerpHeaders", "Status", "MAX_ENVELOPE_BYTES", "MAX_BATCH_BYTES", "MAX_RESPONSE_BYTES",
         "encodeBatch", "decodeBatch", "parseCursor",
-        "Scheduler", "RelaySession", "RequestBuilder", "Ingestor",
+        "Scheduler", "RelaySession", "RequestBuilder", "Ingestor", "MAX_CONVERSATION_NAME",
         "ConcurrencyLimiter", "TokenBucket", "RealClock",
         "AuthHeaders", "RequestSigner", "RequestVerifier",
         "canonicalRequest", "bodyHashHex", "hmacKeyFor", "normalizePkh",

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { ContentTypes, envelopeHash } from "../../../smep/src/index.js";
-import { Ingestor } from "../../src/ingest/ingestor.js";
+import { Ingestor, MAX_CONVERSATION_NAME } from "../../src/ingest/ingestor.js";
 import { StorageMemory } from "../../src/storage/storage-memory.js";
 import { VirtualClock } from "../helpers/fakes.js";
 import {
@@ -104,6 +104,22 @@ test("our own envelope is outbound, filed under the recipient, never unread", as
     assert.equal(created, true);
     assert.equal(conversation.publicKeyHex, alice.publicKeyHex);
     assert.equal(conversation.unreadCount, 0);
+});
+
+test("a note to ourselves is outbound, filed under us, and unread", async () => {
+
+    const { bob, storage, ingestor, of } = await setup();
+
+    const sent = await envelopeFor(bob, bob, "note to self");
+    await ingestor.ingest([sent.buffer, sent.buffer]);
+
+    const [stored] = await storage.envelopesGet({ hash: sent.hash });
+    assert.equal(stored.direction, "outbound");
+    assert.equal(stored.publicKeyHex, bob.publicKeyHex);
+
+    const [{ conversation }] = of("conversation");
+    assert.equal(conversation.publicKeyHex, bob.publicKeyHex);
+    assert.equal(conversation.unreadCount, 1, "counted once");
 });
 
 test("unread counts add up and the conversation is announced as updated", async () => {
@@ -320,6 +336,93 @@ test("markRead waits for the ingests before it, and the ones after it count", as
 
     assert.equal((await read).unreadCount, 0);
     assert.equal((await storage.conversationsGet())[0].unreadCount, 1);
+});
+
+// ============================================================
+// rename
+// ============================================================
+
+test("rename sets the name, announces the conversation and returns it", async () => {
+
+    const { bob, alice, storage, ingestor, of } = await setup();
+
+    await ingestor.ingest([(await envelopeFor(alice, bob)).buffer]);
+
+    const conversation = await ingestor.rename(alice.publicKeyHex, "  Alice  ");
+
+    assert.equal(conversation.name, "Alice", "trimmed");
+    assert.equal(conversation.unreadCount, 1, "unread untouched");
+    assert.deepEqual(await storage.conversationsGet(), [conversation]);
+    assert.deepEqual(of("conversation").at(-1), { type: "conversation", conversation, created: false });
+});
+
+test("rename with an empty or blank name removes it", async () => {
+
+    const { bob, alice, storage, ingestor } = await setup();
+
+    await ingestor.ingest([(await envelopeFor(alice, bob)).buffer]);
+    await ingestor.rename(alice.publicKeyHex, "Alice");
+
+    const conversation = await ingestor.rename(alice.publicKeyHex, "   ");
+
+    assert.equal("name" in conversation, false);
+    assert.equal("name" in (await storage.conversationsGet())[0], false);
+});
+
+test("rename cuts long names by code point", async () => {
+
+    const { bob, alice, ingestor } = await setup();
+
+    await ingestor.ingest([(await envelopeFor(alice, bob)).buffer]);
+
+    const long = await ingestor.rename(alice.publicKeyHex, "a".repeat(MAX_CONVERSATION_NAME + 10));
+    assert.equal(long.name.length, MAX_CONVERSATION_NAME);
+
+    const emoji = await ingestor.rename(alice.publicKeyHex, "😀".repeat(MAX_CONVERSATION_NAME + 1));
+    assert.equal([...emoji.name].length, MAX_CONVERSATION_NAME);
+    assert.equal(emoji.name, "😀".repeat(MAX_CONVERSATION_NAME));
+});
+
+test("rename returns null without a conversation and insists on strings", async () => {
+
+    const { alice, ingestor, of } = await setup();
+
+    assert.equal(await ingestor.rename(alice.publicKeyHex, "Alice"), null);
+    assert.equal(of("conversation").length, 0);
+
+    assert.throws(() => ingestor.rename(42, "Alice"));
+    assert.throws(() => ingestor.rename(alice.publicKeyHex, null));
+});
+
+test("a name survives later ingests and markRead", async () => {
+
+    const { bob, alice, storage, ingestor } = await setup();
+
+    await ingestor.ingest([(await envelopeFor(alice, bob, "1")).buffer]);
+    await ingestor.rename(alice.publicKeyHex, "Alice");
+    await ingestor.ingest([(await envelopeFor(alice, bob, "2")).buffer]);
+    await ingestor.markRead(alice.publicKeyHex);
+
+    const [conversation] = await storage.conversationsGet();
+    assert.equal(conversation.name, "Alice");
+    assert.equal(conversation.unreadCount, 0);
+});
+
+test("rename and concurrent ingests lose neither the name nor an unread increment", async () => {
+
+    const { bob, alice, storage, ingestor } = await setup({ storage: new SlowStorage() });
+
+    await ingestor.ingest([(await envelopeFor(alice, bob, "1")).buffer]);
+
+    await Promise.all([
+        ingestor.ingest([(await envelopeFor(alice, bob, "2")).buffer]),
+        ingestor.rename(alice.publicKeyHex, "Alice"),
+        ingestor.ingest([(await envelopeFor(alice, bob, "3")).buffer]),
+    ]);
+
+    const [conversation] = await storage.conversationsGet();
+    assert.equal(conversation.name, "Alice");
+    assert.equal(conversation.unreadCount, 3);
 });
 
 test("the constructor insists on its dependencies", async () => {

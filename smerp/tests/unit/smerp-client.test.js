@@ -97,6 +97,7 @@ test("every method but on needs a running client", async () => {
             () => client.envelopesGet(),
             () => client.conversationsGet(),
             () => client.markRead("ab".repeat(32)),
+            () => client.renameConversation("ab".repeat(32), "Alice"),
             () => client.relaysGet(),
             () => client.relaysPut({ relayUrl: A, relayType: "archive" }),
             () => client.relaysDelete({ relayUrl: A }),
@@ -577,6 +578,24 @@ test("markRead resets unread and announces the conversation", async (t) => {
     assert.equal((await client.conversationsGet())[0].unreadCount, 0);
 
     assert.equal(await client.markRead(alice.publicKeyHex), null);
+});
+
+test("renameConversation names the conversation and announces it", async (t) => {
+
+    const { client, relays, of, sync } = await startFakeClient(t, { relayUrls: [A] });
+    const alice = await identity();
+
+    assert.equal(await client.renameConversation(alice.publicKeyHex, "Alice"), null);
+
+    relays.add(A, (await envelopeFor(alice, client.identity)).bytes);
+    await sync();
+
+    const conversation = await client.renameConversation(alice.publicKeyHex, "Alice");
+    await tick();
+
+    assert.equal(conversation.name, "Alice");
+    assert.deepEqual(of(EventTypes.CONVERSATION).at(-1).conversation, conversation);
+    assert.equal((await client.conversationsGet())[0].name, "Alice");
 });
 
 // ============================================================

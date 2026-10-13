@@ -45,11 +45,17 @@ import { RealClock } from "../lib/clock.js";
  *
  * Stored conversation:
  *
- *   { publicKeyHex, unreadCount, lastMessageAt }
+ *   { publicKeyHex, unreadCount, lastMessageAt, name? }
+ *
+ * name is the user's local label for the peer, set only through rename.
  *
  * Our own sent envelopes come back through sync as "outbound" and are not
- * counted unread.
+ * counted unread, except a note to ourselves (we are also the recipient),
+ * which is unread like any envelope addressed to us.
  */
+/** Longest conversation name, in characters; rename cuts longer ones. */
+export const MAX_CONVERSATION_NAME = 64;
+
 export class Ingestor {
 
     constructor({
@@ -111,6 +117,38 @@ export class Ingestor {
             }
 
             const conversation = { ...existing, unreadCount: 0 };
+
+            await this.storage.conversationsPut(conversation);
+
+            this.onConversation(conversation, false);
+
+            return conversation;
+        });
+    }
+
+    /**
+     * Set a conversation's name, or remove it when name is empty. The name
+     * is trimmed and cut to MAX_CONVERSATION_NAME characters. Resolves
+     * with the stored conversation, or null if there is none.
+     */
+    rename(publicKeyHex, name) {
+
+        insist(publicKeyHex, "string");
+        insist(name, "string");
+
+        // Cut by code point so a surrogate pair is never split.
+        const label = [...name.trim()].slice(0, MAX_CONVERSATION_NAME).join("").trim();
+
+        return this.enqueue(async () => {
+
+            const [existing] = await this.storage.conversationsGet({ publicKeyHex });
+
+            if (!existing) {
+                return null;
+            }
+
+            const { name: _previous, ...rest } = existing;
+            const conversation = label ? { ...rest, name: label } : rest;
 
             await this.storage.conversationsPut(conversation);
 
@@ -212,7 +250,7 @@ export class Ingestor {
             publicKeyHex,
             unreadCount:
                 (existing?.unreadCount ?? 0) +
-                (record.direction === "inbound" ? 1 : 0),
+                (record.recipientPublicKeyHex === this.publicKeyHex ? 1 : 0),
             lastMessageAt: Math.max(existing?.lastMessageAt ?? 0, record.sentAt),
         };
 

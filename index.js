@@ -12,6 +12,7 @@ export {
     NotStartedError,
     DispatchError,
     EventTypes,
+    MAX_CONVERSATION_NAME,
     StorageMemory,
     IndexedDbStorage,
 } from "./smerp/src/index.js";

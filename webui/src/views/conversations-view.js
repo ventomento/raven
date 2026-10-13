@@ -2,10 +2,11 @@
 
 import { EventTypes } from "../../../index.js";
 import { h, replaceChildren, perFrame } from "../dom.js";
-import { shortHex, formatTime } from "../format.js";
+import { shortHex, peerLabel, formatTime } from "../format.js";
 
 /**
- * Conversations, most recent first, with an unread badge per row.
+ * Conversations, most recent first, with an unread badge per row. A
+ * named conversation shows its name above the key.
  * Picking one opens its thread.
  */
 export class ConversationsView {
@@ -55,7 +56,11 @@ export class ConversationsView {
     replaceChildren(this.list, conversations.map(c => this.#row(c)));
   }
 
-  #row({ publicKeyHex, unreadCount = 0, lastMessageAt }) {
+  #row(conversation) {
+
+    const { publicKeyHex, unreadCount = 0, lastMessageAt } = conversation;
+    const label = peerLabel(conversation, this.client.publicKeyHex);
+    const hex = shortHex(publicKeyHex, 12, 6);
 
     return h("li", {},
       h("button", {
@@ -64,10 +69,15 @@ export class ConversationsView {
         title: publicKeyHex,
         onclick: () => this.shell.openThread(publicKeyHex),
       },
-        h("span", { class: "row-main" },
-          h("span", { class: "eyebrow" }, "Peer"),
-          h("span", { class: "mono" }, shortHex(publicKeyHex, 12, 6))
-        ),
+        label
+          ? h("span", { class: "row-main" },
+              h("span", { class: "row-primary" }, label),
+              h("span", { class: "mono muted small" }, hex)
+            )
+          : h("span", { class: "row-main" },
+              h("span", { class: "eyebrow" }, "Peer"),
+              h("span", { class: "mono row-primary" }, hex)
+            ),
         h("span", { class: "row-side" },
           h("span", { class: "muted" }, formatTime(lastMessageAt)),
           unreadCount > 0 && h("span", { class: "badge" }, unreadCount)

@@ -102,6 +102,24 @@ export class FakeClient {
         return conversation;
     }
 
+    async renameConversation(publicKeyHex, name) {
+
+        this.record("renameConversation", publicKeyHex, name);
+
+        const [existing] = await this.storage.conversationsGet({ publicKeyHex });
+
+        if (!existing) {
+            return null;
+        }
+
+        const { name: _previous, ...rest } = existing;
+        const label = name.trim();
+        const conversation = label ? { ...rest, name: label } : rest;
+        await this.storage.conversationsPut(conversation);
+
+        return conversation;
+    }
+
     async relaysGet(options = {}) {
         this.record("relaysGet", options);
         return this.storage.relaysGet(options);
