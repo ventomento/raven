@@ -402,8 +402,9 @@ export class SmerpClient {
 
     /**
      * Run write (a relay write) with the scheduler stopped, then rebuild
-     * sessions and scheduler and sync. Changes run one at a time, so two
-     * changes cannot interleave their stop and rebuild.
+     * sessions and scheduler (also when the write fails) and sync. Changes
+     * run one at a time, so two changes cannot interleave their stop and
+     * rebuild.
      */
     changeRelays(write) {
 
@@ -415,13 +416,21 @@ export class SmerpClient {
             // From here a late save (from a post) of an old session is ignored.
             this.sessions = new Map();
 
-            const result = await write();
+            // Rebuild even if the write failed: the scheduler is stopped
+            // and the sessions cleared, so without it nothing would sync
+            // or send until the next relay change.
+            try {
+                return await write();
+            }
+            finally {
 
-            await this.buildSessions();
+                await this.buildSessions();
 
-            void this.sync();
-
-            return result;
+                // stop() may be waiting for this change.
+                if (this.status === ClientStatus.RUNNING) {
+                    void this.sync();
+                }
+            }
         });
 
         this.relayChanges = run.catch(() => {});

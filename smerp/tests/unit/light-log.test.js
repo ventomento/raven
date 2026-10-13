@@ -1,7 +1,7 @@
 // LightLog.test.js
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LightLog } from "../src/log/light-log.js";
+import { LightLog } from "../../src/log/light-log.js";
 
 test("LightLog: debug false should not log anything", () => {
   const log = new LightLog({ debug: false });

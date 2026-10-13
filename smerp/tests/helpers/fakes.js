@@ -130,12 +130,16 @@ export class VirtualClock {
  * accepts POSTs. Every request is logged in `requests`.
  *
  * `hook(request)` may return a response to override the default one.
+ * `setRelayPkh(relayUrl, pkh)` makes that relay announce its key as
+ * x-smerp-relay-pkh on every response, hooked ones included (unless the
+ * hook sets the header itself).
  */
 export class FakeRelays {
 
     constructor(clock) {
         this.clock = clock;
         this.records = new Map(); // relayUrl -> [{ id, body }]
+        this.relayPkhs = new Map(); // relayUrl -> pkh
         this.requests = [];
         this.hook = null;
         this.batchSize = Infinity;
@@ -148,7 +152,23 @@ export class FakeRelays {
         this.records.set(relayUrl, list);
     }
 
-    transport = async ({ url, options = {} }) => {
+    setRelayPkh(relayUrl, pkh) {
+        this.relayPkhs.set(relayUrl, pkh);
+    }
+
+    transport = async (args) => {
+
+        const response = await this.respond(args);
+        const relayPkh = this.relayPkhs.get(new URL(args.url).origin);
+
+        if (relayPkh) {
+            response.headers = { "x-smerp-relay-pkh": relayPkh, ...response.headers };
+        }
+
+        return response;
+    };
+
+    async respond({ url, options = {} }) {
 
         const parsed = new URL(url);
 
@@ -158,6 +178,9 @@ export class FakeRelays {
             cursor: Number(parsed.searchParams.get("cursor")),
             signed: "x-smerp-signature" in (options.headers ?? {}),
             authorization: options.headers?.authorization,
+            headers: options.headers ?? {},
+            body: options.body,
+            url,
             at: this.clock.now(),
         };
 
@@ -202,7 +225,7 @@ export class FakeRelays {
             headers: { "x-smerp-cursor": String(batch[batch.length - 1].id) },
             body: encodeBatch(batch.map(record => record.body)),
         };
-    };
+    }
 
     requestsTo(relayUrl) {
         return this.requests.filter(r => r.relayUrl === relayUrl);

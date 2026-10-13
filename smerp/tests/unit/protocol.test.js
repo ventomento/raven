@@ -1,13 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { EnvelopeLayout } from "../../../smep/src/index.js";
 import {
+    SmerpHeaders,
+    Status,
+    MAX_ENVELOPE_BYTES,
+    MAX_BATCH_BYTES,
     encodeBatch,
     decodeBatch,
     parseCursor,
-    getEnvelopes,
-    postEnvelope,
-} from "../src/protocol/index.js";
+} from "../../src/protocol/index.js";
 
 const bytes = (...values) => new Uint8Array(values);
 const asArray = (buffer) => Array.from(new Uint8Array(buffer));
@@ -98,15 +101,33 @@ test("parseCursor rejects a missing, non-integer or regressing cursor", () => {
     assert.throws(() => parseCursor("4", 5), /cursor regression/);
 });
 
-test("requests carry the target relative to the relay URL", () => {
+test("parseCursor rejects an integer beyond the safe range", () => {
 
-    assert.deepEqual(getEnvelopes(12), { method: "GET", target: "/envelopes?cursor=12" });
+    assert.throws(() => parseCursor("9007199254740993", 0), /invalid cursor/);
+});
 
-    const body = bytes(1);
-    const post = postEnvelope(body);
+test("encodeBatch rejects an envelope that is not bytes", () => {
 
-    assert.equal(post.method, "POST");
-    assert.equal(post.target, "/envelopes");
-    assert.equal(post.body, body);
-    assert.equal(post.headers["content-type"], "application/octet-stream");
+    assert.throws(() => encodeBatch(["text"]), TypeError);
+});
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+test("header names are lowercase, as Node and fetch report them", () => {
+
+    for (const name of Object.values(SmerpHeaders)) {
+        assert.equal(name, name.toLowerCase());
+    }
+});
+
+test("size limits are 4 MiB and the envelope limit is smep's", () => {
+
+    assert.equal(MAX_ENVELOPE_BYTES, EnvelopeLayout.MAX_SIZE);
+    assert.equal(MAX_BATCH_BYTES, 4 * 1024 * 1024);
+    assert.deepEqual(
+        [Status.OK, Status.NO_CONTENT, Status.BAD_REQUEST, Status.UNAUTHORIZED, Status.TOO_MANY_REQUESTS],
+        [200, 204, 400, 401, 429]
+    );
 });

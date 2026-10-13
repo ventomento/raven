@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { PrivateIdentity, PublicIdentity, encrypt } from "../../smep/src/index.js";
-import { RequestSigner } from "../src/auth/request-signer.js";
-import { SmerpServer } from "../src/server/index.js";
+import { PrivateIdentity, PublicIdentity, encrypt } from "../../../smep/src/index.js";
+import { RequestSigner } from "../../src/auth/request-signer.js";
+import { SmerpServer } from "../../src/server/index.js";
 
 async function startServer(t, options) {
 

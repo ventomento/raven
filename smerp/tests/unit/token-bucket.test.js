@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { TokenBucket } from "../src/lib/token-bucket.js";
-import { VirtualClock } from "./helpers/fakes.js";
+import { TokenBucket } from "../../src/lib/token-bucket.js";
+import { VirtualClock } from "../helpers/fakes.js";
 
 // Takes n tokens, jumping time to nextTokenAt() whenever none is left.
 function takeTimes(bucket, clock, n) {

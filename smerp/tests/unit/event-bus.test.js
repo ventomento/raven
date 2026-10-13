@@ -1,7 +1,7 @@
 // event-bus.test.js
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EventBus, EventTypes, isValidEventType } from "../src/event/event-bus.js";
+import { EventBus, EventTypes, isValidEventType } from "../../src/event/event-bus.js";
 
 test("isValidEventType: should validate known event types", () => {
   assert.equal(isValidEventType(EventTypes.CONVERSATION), true);

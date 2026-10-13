@@ -8,5 +8,8 @@
     "./smerp": "./smerp/src/index.js",
     "./testing": "./smerp/src/server/index.js",
     "./webui": "./webui/src/index.js"
+  },
+  "devDependencies": {
+    "happy-dom": "21.0.1"
   }
 }

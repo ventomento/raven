@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { shortHex, formatTime, formatBytes, parsePublicKeyHex } from "../src/format.js";
+import { shortHex, formatTime, formatBytes, parsePublicKeyHex } from "../../src/format.js";
 
 test("shortHex: shortens long hex, keeps head and tail", () => {
   const hex = "0123456789abcdef0123456789abcdef";

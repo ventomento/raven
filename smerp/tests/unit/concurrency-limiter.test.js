@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {ConcurrencyLimiter} from "../src/lib/concurrency-limiter.js";
+import {ConcurrencyLimiter} from "../../src/lib/concurrency-limiter.js";
 
 function sleep(ms) {
     return new Promise(resolve =>

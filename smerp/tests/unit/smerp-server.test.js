@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { PrivateIdentity, PublicIdentity, encrypt, readEnvelope, bytesToHex } from "../../smep/src/index.js";
-import { RequestSigner } from "../src/auth/request-signer.js";
-import { SmerpServer } from "../src/server/index.js";
-import { decodeBatch, MAX_ENVELOPE_BYTES } from "../src/protocol/index.js";
+import { PrivateIdentity, PublicIdentity, encrypt, readEnvelope, bytesToHex } from "../../../smep/src/index.js";
+import { RequestSigner } from "../../src/auth/request-signer.js";
+import { SmerpServer } from "../../src/server/index.js";
+import { decodeBatch, MAX_ENVELOPE_BYTES } from "../../src/protocol/index.js";
 
 // Wire behavior of the mock relay: batched GET and the envelope size limit.
 
