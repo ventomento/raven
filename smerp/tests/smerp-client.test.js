@@ -238,7 +238,7 @@ test("many small envelopes are fetched with one request", async (t) => {
     await bob.sync();
 
     assert.equal((await bob.envelopesGet()).length, 30);
-    // first contact (unsigned, 401, retried signed) with the whole batch, then 204
+    // first contact (unsigned 401 teaches the key; next request signed) with the whole batch, then 204
     assert.equal(gets.length, 3);
     assert.equal((await bob.relaysGet())[0].cursor, 30);
 });
@@ -448,7 +448,7 @@ test("a 429 on send pauses that relay, later sends fail fast for it", async (t) 
 
 const RELAY_PKH = "ab".repeat(32);
 
-test("a POST to a relay with an unknown key is retried signed and the key is saved", async (t) => {
+test("a POST to a relay with an unknown key fails, saves the key, and the next send is signed", async (t) => {
 
     const { client, relays } = await startFakeClient(t);
 
@@ -466,6 +466,10 @@ test("a POST to a relay with an unknown key is retried signed and the key is sav
     await client.relaysPut({ relayUrl: "http://new.test", relayType: "relay" });
 
     const learned = nextEvent(client, EventTypes.RELAY, e => e.relay.relayPkh === RELAY_PKH);
+
+    const error = await client.send(client.publicKeyHex, "hi").catch(e => e);
+    assert.ok(error instanceof DispatchError);
+    assert.match(error.failed[0].error.message, /relay key learned/);
 
     const sent = await client.send(client.publicKeyHex, "hi");
 

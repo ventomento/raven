@@ -110,8 +110,8 @@ Who may sign what is relay policy, except where an endpoint defines it
                        relay forwarding it
 
 A client that has not learned the relay's key yet sends the request
-unsigned. The relay answers 401 with its key, and the client signs and
-retries (section 7).
+unsigned. The relay answers 401 with its key, and the client signs its
+next request (section 7).
 
 
 6. Relay Key
@@ -147,15 +147,18 @@ configuration.
 - A response without the header, or with a value that is not 64 hex
   digits, leaves the stored key unchanged. Responses from proxies and
   load balancers usually lack it.
-- On a 401 whose x-smerp-relay-pkh differs from the key the request
-  was signed with (or the request was unsigned), the client retries the
-  request once, signed with the new key. If that also fails, or the key
-  is unchanged, the request has failed. The single retry prevents loops
-  against a relay that keeps changing keys.
+- A 401 whose x-smerp-relay-pkh differs from the key the request was
+  signed with (or the request was unsigned) is not a failure: the
+  client has learned the key and signs its next request with it. The
+  request is not retried immediately; the client sends the next
+  request to that relay as it normally would. A 401 that carries the
+  key the request was signed with, or no valid key, is a failure.
 
-This covers both first contact and key rotation. The client SHOULD
-persist the stored key, so first contact costs one 401 per relay, not
-one per start.
+This covers both first contact and key rotation without a special
+case: the request that learns the key ends like any other, and a relay
+that keeps changing keys costs one request per change, at the client's
+normal pace. The client SHOULD persist the stored key, so first contact
+costs one 401 per relay, not one per start.
 
 
 8. Access Tokens
@@ -210,7 +213,7 @@ Any failure is answered with:
 of window, a missing or invalid token, a signer the relay does not
 accept. The reason is free text for display and MUST NOT be relied on
 by clients. The client treats any 401 as a failed request to that
-relay, after the retry of section 7.
+relay, except one that taught a new key (section 7).
 
 Relays that serve browser clients MUST allow the x-smerp-pkh,
 x-smerp-timestamp, x-smerp-signature and Authorization request headers

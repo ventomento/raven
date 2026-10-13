@@ -7,8 +7,10 @@ import { h, replaceChildren } from "../dom.js";
  */
 export class IdentityView {
 
-  constructor({ client }) {
+  // identity: the PrivateIdentity, from WebUi; the client does not expose it.
+  constructor({ client, identity }) {
     this.client = client;
+    this.identity = identity;
   }
 
   mount(container) {
@@ -22,7 +24,7 @@ export class IdentityView {
       class: "ghost",
       type: "button",
       onclick: async () => {
-        privateKeyHex ??= await this.client.identity.exportPrivateHex();
+        privateKeyHex ??= await this.identity.exportPrivateHex();
         const reveal = revealButton.textContent === "Reveal";
         privateValue.textContent = reveal ? privateKeyHex : "••••••••••••••••";
         revealButton.textContent = reveal ? "Hide" : "Reveal";
@@ -45,7 +47,7 @@ export class IdentityView {
         privateValue,
         h("div", { class: "form-row" },
           revealButton,
-          copyButton(() => this.client.identity.exportPrivateHex())
+          copyButton(() => this.identity.exportPrivateHex())
         )
       )
     );

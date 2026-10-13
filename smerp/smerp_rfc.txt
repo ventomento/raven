@@ -152,13 +152,14 @@ Envelopes MUST be stored and forwarded byte-identical.
   cursor past it. Only a local failure (storage) keeps the cursor, so
   the batch is fetched again later.
 - Do not create or upload an envelope larger than 4 MiB.
-- On 429, wait for Retry-After (seconds or HTTP date) before contacting
+- On 429, wait for Retry-After (seconds) before contacting
   that relay again.
-- Sign every request, learn the relay key from x-smerp-relay-pkh, and
-  retry a 401 once when that key changed (auth_rfc sections 5 and 7).
+- Sign every request and learn the relay key from x-smerp-relay-pkh; a
+  401 that taught a new key is not a failure, and the next request is
+  signed with it (auth_rfc sections 5 and 7).
 - Send a relay's access token, if configured, on every request to that
   relay only (auth_rfc section 8).
-- Treat a 401 that is not retried as a failed request to that relay.
+- Treat any other 401 as a failed request to that relay.
   The x-smerp-unauthorized reason, if any, is display text only.
 
 

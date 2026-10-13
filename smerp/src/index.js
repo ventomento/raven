@@ -23,28 +23,16 @@ export {
     Status,
     MAX_ENVELOPE_BYTES,
     MAX_BATCH_BYTES,
-    getEnvelopes,
-    postEnvelope,
     encodeBatch,
     decodeBatch,
     parseCursor,
-    retryAfterMs,
 } from "./protocol/index.js";
 
-// relays: sessions, the pool that runs them, rate limits
-export { RelaySession, SessionOutcome } from "./relay/relay-session.js";
-export { RelayPool, SessionState } from "./relay/relay-pool.js";
-export { RelayRateLimits } from "./relay/rate-limits.js";
-
-// local state: the only storage writers
-export { RelayDirectory } from "./state/relay-directory.js";
-export { MessageStore } from "./state/message-store.js";
-
-// receiving and sending
-export { EnvelopeOpener } from "./inbox/envelope-opener.js";
-export { Ingestor, IngestOutcome } from "./inbox/ingestor.js";
-export { Sender } from "./outbox/sender.js";
-export { composeClient } from "./client/compose.js";
+// sync: the scheduler, the relay sessions it runs, and ingestion
+export { Scheduler } from "./sync/scheduler.js";
+export { RelaySession } from "./session/relay-session.js";
+export { RequestBuilder } from "./session/request-builder.js";
+export { Ingestor } from "./ingest/ingestor.js";
 
 // generic building blocks
 export { ConcurrencyLimiter } from "./lib/concurrency-limiter.js";

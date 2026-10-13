@@ -29,9 +29,10 @@ const TABS = [
  */
 export class AppShell {
 
-  constructor({ client, root, recipientPublicKeyHex = null }) {
+  constructor({ client, identity, root, recipientPublicKeyHex = null }) {
 
     this.client = client;
+    this.identity = identity;
     this.root = root;
     this.view = null;
 
@@ -73,7 +74,7 @@ export class AppShell {
   selectTab(id, options = {}) {
     const { View } = TABS.find(tab => tab.id === id);
     this.tabBar.select(id);
-    this.#show(new View({ ...options, client: this.client, shell: this }));
+    this.#show(new View({ ...options, client: this.client, identity: this.identity, shell: this }));
   }
 
   openThread(publicKeyHex) {

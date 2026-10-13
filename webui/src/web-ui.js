@@ -76,6 +76,7 @@ export class WebUi {
     this.client = client;
     this.shell = new AppShell({
       client,
+      identity,
       root: this.root,
       recipientPublicKeyHex: this.recipientPublicKeyHex,
     });

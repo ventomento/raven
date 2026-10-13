@@ -140,12 +140,10 @@ export class ThreadView {
 
   async #markRead(conversation) {
 
-    if (!conversation) {
-      [conversation] = await this.client.conversationsGet({ publicKeyHex: this.publicKeyHex });
+    if (conversation && conversation.unreadCount === 0) {
+      return;
     }
 
-    if (conversation?.unreadCount > 0) {
-      await this.client.conversationsPut({ ...conversation, unreadCount: 0 });
-    }
+    await this.client.markRead(this.publicKeyHex);
   }
 }

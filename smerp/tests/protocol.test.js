@@ -5,7 +5,6 @@ import {
     encodeBatch,
     decodeBatch,
     parseCursor,
-    retryAfterMs,
     getEnvelopes,
     postEnvelope,
 } from "../src/protocol/index.js";
@@ -98,24 +97,6 @@ test("parseCursor rejects a missing, non-integer or regressing cursor", () => {
     assert.throws(() => parseCursor("5", 5), /cursor regression/);
     assert.throws(() => parseCursor("4", 5), /cursor regression/);
 });
-
-// ============================================================
-// RETRY-AFTER
-// ============================================================
-
-test("retryAfterMs reads seconds or a date, defaults otherwise", () => {
-
-    const now = Date.parse("2026-01-01T00:00:00Z");
-
-    assert.equal(retryAfterMs({ "retry-after": "30" }, now), 30 * 1000);
-    assert.equal(retryAfterMs({ "retry-after": "Thu, 01 Jan 2026 00:01:00 GMT" }, now), 60 * 1000);
-    assert.equal(retryAfterMs({ "retry-after": "soon" }, now), 5000);
-    assert.equal(retryAfterMs({}, now), 5000);
-});
-
-// ============================================================
-// REQUESTS
-// ============================================================
 
 test("requests carry the target relative to the relay URL", () => {
 
