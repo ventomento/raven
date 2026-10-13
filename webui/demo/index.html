@@ -82,7 +82,9 @@
 
     async function open(privateKeyHex) {
       try {
-        await new WebUi({ privateKeyHex, relays }).start();
+        // ?debug in the URL logs the client's activity to the console.
+        const debug = new URLSearchParams(location.search).has("debug");
+        await new WebUi({ privateKeyHex, relays, debug }).start();
         document.head.querySelector("style").remove();
       }
       catch (error) {

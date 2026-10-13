@@ -178,11 +178,19 @@ export class Ingestor {
 
         this.publicKeyHex ??= await this.identity.exportPublicHex();
 
+        let stored = 0;
+
         for (const bytes of frames) {
-            await this.ingestFrame(bytes, relayUrl);
+            if (await this.ingestFrame(bytes, relayUrl)) {
+                stored += 1;
+            }
         }
+
+        this.logger.debug("ingested", { relayUrl, frames: frames.length, stored });
     }
 
+    // Resolves true if the envelope was stored, false if it was a
+    // duplicate or rejected.
     async ingestFrame(bytes, relayUrl) {
 
         // The hash is computed from the bytes, never read from the header, so
@@ -190,7 +198,7 @@ export class Ingestor {
         const hash = await envelopeHash(bytes);
 
         if (await this.isStored(hash)) {
-            return;
+            return false;
         }
 
         let decrypted;
@@ -201,7 +209,7 @@ export class Ingestor {
         }
         catch (error) {
             this.reject(hash, error, relayUrl);
-            return;
+            return false;
         }
 
         const record = this.toRecord(hash, decrypted);
@@ -212,6 +220,8 @@ export class Ingestor {
 
         this.onEnvelope(record);
         this.onConversation(conversation, created);
+
+        return true;
     }
 
     async isStored(hash) {
@@ -261,7 +271,7 @@ export class Ingestor {
 
     reject(hash, error, relayUrl) {
 
-        this.logger.warn("Envelope rejected:", { hash, relayUrl, reason: error.message });
+        this.logger.warn("envelope rejected", { hash, relayUrl, reason: error.message });
 
         this.onRejected({ hash, reason: error.message, relayUrl });
     }

@@ -32,7 +32,7 @@ test("raven/smerp: the building blocks", () => {
         "ConcurrencyLimiter", "TokenBucket", "RealClock",
         "AuthHeaders", "RequestSigner", "RequestVerifier",
         "canonicalRequest", "bodyHashHex", "hmacKeyFor", "normalizePkh",
-        "LightLog",
+        "Logger",
     ]), []);
 });
 

@@ -17,12 +17,8 @@ export class TransportDefault extends TransportInterface {
     options = {},
     timeout = 10000,
     maxBytes = MAX_RESPONSE_BYTES,
-    logger,
   }) {
 
-    if (!logger){
-      throw new Error("transport void logger");
-    }
     const controller = new AbortController();
 
     const timeoutId = setTimeout(() => {
@@ -43,10 +39,6 @@ export class TransportDefault extends TransportInterface {
       // Relay bodies are bytes (envelopes, batches) or empty.
       const body = await readBody(response, maxBytes, controller);
       const headers = Object.fromEntries(response.headers.entries());
-
-      if (status === 200){
-        logger.info("Transport received 200 response", {status, headers});
-      }
 
       return {
         status,

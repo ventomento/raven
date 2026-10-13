@@ -10,7 +10,7 @@ import { insist } from "../../../smep/src/util/util.js";
 import { ContentTypes } from "../../../smep/src/envelope/content-types.js";
 import { StorageMemory } from "../storage/storage-memory.js";
 import { TransportDefault } from "../transport/transport-default.js";
-import { LightLog } from "../log/light-log.js";
+import { Logger } from "../log/logger.js";
 import { RealClock } from "../lib/clock.js";
 import { EventBus, EventTypes } from "../event/event-bus.js";
 import { Scheduler } from "../sync/scheduler.js";
@@ -70,8 +70,10 @@ export class SmerpClient {
         identity,
         transporter = TransportDefault,
         storage = new StorageMemory(),
-        logger = new LightLog(),
         clock = RealClock,
+        // Developer logs to the console; ignored when a logger is given.
+        debug = false,
+        logger = null,
         syncIntervalMs = 60 * 1000,
         // Sync requests in flight at once, over all relays.
         concurrency = Scheduler.DEFAULTS.concurrency,
@@ -82,7 +84,7 @@ export class SmerpClient {
         this.identity = identity;
         this.transporter = transporter;
         this.storage = storage;
-        this.logger = logger;
+        this.logger = logger ?? new Logger({ enabled: debug, clock });
         this.clock = clock;
         this.syncIntervalMs = syncIntervalMs;
         this.concurrency = concurrency;
@@ -143,6 +145,8 @@ export class SmerpClient {
 
         this.setStatus(ClientStatus.RUNNING);
 
+        this.logger.info("started", { publicKeyHex: this.publicKeyHex, relays: this.sessions.size });
+
         void this.sync();
 
         this.syncIntervalId = setInterval(() => void this.sync(), this.syncIntervalMs);
@@ -168,6 +172,8 @@ export class SmerpClient {
         this.ingestor = null;
 
         this.setStatus(ClientStatus.STOPPED);
+
+        this.logger.info("stopped");
     }
 
     // =====================================================
@@ -188,10 +194,12 @@ export class SmerpClient {
 
         if (!this.syncing) {
 
+            this.logger.debug("sync start");
             this.publish({ type: EventTypes.SYNC, phase: "start" });
 
             this.syncing = done.then(() => {
                 this.syncing = null;
+                this.logger.debug("sync end");
                 this.publish({ type: EventTypes.SYNC, phase: "end" });
             });
         }
@@ -251,7 +259,13 @@ export class SmerpClient {
             }
         });
 
-        this.logger.info("Send:", { delivered, failed });
+        const hash = await envelopeHash(envelopeBytes);
+
+        this.logger.info("send", {
+            hash,
+            delivered,
+            failed: failed.map(({ relayUrl, error }) => ({ relayUrl, reason: error.message })),
+        });
 
         if (delivered.length === 0) {
             throw new DispatchError(failed);
@@ -260,7 +274,7 @@ export class SmerpClient {
         void this.sync();
 
         return {
-            hash: await envelopeHash(envelopeBytes),
+            hash,
             delivered,
             failed,
         };
@@ -440,6 +454,8 @@ export class SmerpClient {
 
                 await this.buildSessions();
 
+                this.logger.info("relays changed", { relays: this.sessions.size });
+
                 // stop() may be waiting for this change.
                 if (this.status === ClientStatus.RUNNING) {
                     void this.sync();
@@ -459,11 +475,11 @@ export class SmerpClient {
             concurrency: this.concurrency,
             clock: this.clock,
             onError: (error, session) => {
-                this.logger.warn("Sync step failed:", session.relayUrl, error.message);
+                this.logger.warn("sync step failed", { relayUrl: session.relayUrl, reason: error.message });
                 this.publish({ type: EventTypes.ERROR, error, relayUrl: session.relayUrl });
             },
             onCapped: session => {
-                this.logger.warn("Sync step budget used:", session.relayUrl);
+                this.logger.info("sync step budget used", { relayUrl: session.relayUrl });
             },
         });
 
@@ -479,7 +495,7 @@ export class SmerpClient {
                 relay,
                 identity: this.identity,
                 transporter: this.transporter,
-                logger: this.logger,
+                logger: this.logger.child({ relayUrl: relay.relayUrl }),
                 clock: this.clock,
                 consume: frames => this.ingestor.ingest(frames, relay.relayUrl),
                 save: state => this.saveRelayState(session, state),

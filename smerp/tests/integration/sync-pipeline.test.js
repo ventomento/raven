@@ -6,9 +6,8 @@ import { RelaySession } from "../../src/session/relay-session.js";
 import { Ingestor } from "../../src/ingest/ingestor.js";
 import { StorageMemory } from "../../src/storage/storage-memory.js";
 import { TransportDefault } from "../../src/transport/transport-default.js";
-import { LightLog } from "../../src/log/light-log.js";
 import { RequestSigner } from "../../src/auth/request-signer.js";
-import { identity, envelopeFor, startRelay } from "../helpers/relay-fixtures.js";
+import { identity, envelopeFor, startRelay, RecordingLogger } from "../helpers/relay-fixtures.js";
 
 // The sync modules wired by hand, the way SmerpClient wires them, against
 // the mock relay over HTTP: their contracts fit without the client.
@@ -39,7 +38,7 @@ async function pipeline(relays, { concurrency = 6 } = {}) {
 
     const bob = await identity();
     const storage = new StorageMemory();
-    const logger = new LightLog();
+    const logger = new RecordingLogger();
     const requests = [];
     const saved = new Map();     // relayUrl -> last state
     const announced = [];
@@ -126,7 +125,7 @@ test("a session built from the saved state resumes without first contact", async
                 return TransportDefault.transport(request);
             },
         },
-        logger: new LightLog(),
+        logger: new RecordingLogger(),
         consume: frames => first.ingestor.ingest(frames, relay.relayUrl),
         save: async () => {},
     });

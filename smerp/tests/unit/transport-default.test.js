@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import http from "node:http";
 
 import { TransportDefault } from "../../src/transport/transport-default.js";
-import { RecordingLogger } from "../helpers/relay-fixtures.js";
 
 // TransportDefault against a local HTTP server.
 
@@ -20,11 +19,6 @@ async function startServer(t, handler) {
     return `http://127.0.0.1:${server.address().port}`;
 }
 
-test("throws without a logger", async () => {
-
-    await assert.rejects(TransportDefault.transport({ url: "http://127.0.0.1:1" }), /logger/);
-});
-
 test("returns status, lowercase headers and the body as bytes", async (t) => {
 
     const url = await startServer(t, (request, response) => {
@@ -32,7 +26,7 @@ test("returns status, lowercase headers and the body as bytes", async (t) => {
         response.end(Buffer.from([1, 2, 3]));
     });
 
-    const response = await TransportDefault.transport({ url, logger: new RecordingLogger() });
+    const response = await TransportDefault.transport({ url });
 
     assert.equal(response.status, 200);
     assert.equal(response.headers["x-smerp-cursor"], "7");
@@ -58,7 +52,6 @@ test("sends method, headers and body; non-200 statuses are returned, not thrown"
     const response = await TransportDefault.transport({
         url,
         options: { method: "POST", headers: { "x-test": "yes" }, body: new Uint8Array([9, 8]) },
-        logger: new RecordingLogger(),
     });
 
     assert.deepEqual(seen, { method: "POST", header: "yes", body: Buffer.from([9, 8]) });
@@ -72,14 +65,14 @@ test("a request over its timeout fails with a timeout error", async (t) => {
     const url = await startServer(t, () => { /* never answers */ });
 
     await assert.rejects(
-        TransportDefault.transport({ url, timeout: 50, logger: new RecordingLogger() }),
+        TransportDefault.transport({ url, timeout: 50 }),
         /timeout after 50ms/
     );
 });
 
 test("a refused connection rejects", async () => {
 
-    await assert.rejects(TransportDefault.transport({ url: "http://127.0.0.1:1", logger: new RecordingLogger() }));
+    await assert.rejects(TransportDefault.transport({ url: "http://127.0.0.1:1" }));
 });
 
 test("a body over maxBytes rejects, with or without Content-Length", async (t) => {
@@ -95,7 +88,7 @@ test("a body over maxBytes rejects, with or without Content-Length", async (t) =
         });
 
         await assert.rejects(
-            TransportDefault.transport({ url, maxBytes: 10, logger: new RecordingLogger() }),
+            TransportDefault.transport({ url, maxBytes: 10 }),
             /larger than 10 bytes/,
             chunked ? "chunked" : "content-length"
         );
@@ -115,10 +108,10 @@ test("a body of exactly maxBytes is returned whole; an empty one as empty bytes"
         response.end(Buffer.alloc(6, 2));
     });
 
-    const full = await TransportDefault.transport({ url, maxBytes: 10, logger: new RecordingLogger() });
+    const full = await TransportDefault.transport({ url, maxBytes: 10 });
     assert.deepEqual(Array.from(full.body), [1, 1, 1, 1, 2, 2, 2, 2, 2, 2]);
 
-    const empty = await TransportDefault.transport({ url: `${url}/empty`, maxBytes: 10, logger: new RecordingLogger() });
+    const empty = await TransportDefault.transport({ url: `${url}/empty`, maxBytes: 10 });
     assert.equal(empty.status, 204);
     assert.ok(empty.body instanceof Uint8Array);
     assert.equal(empty.body.byteLength, 0);
@@ -141,7 +134,6 @@ test("redirects are not followed, even if the options ask for it", async (t) => 
     await assert.rejects(TransportDefault.transport({
         url,
         options: { redirect: "follow" },
-        logger: new RecordingLogger(),
     }));
 
     assert.equal(reached, false);

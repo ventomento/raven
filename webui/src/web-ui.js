@@ -25,6 +25,7 @@ const STYLESHEET_URL = new URL("./styles/webui.css", import.meta.url);
  * unless a relay with that relayUrl is already stored. Stored relays are
  * left untouched, so the user's edits (e.g. disabling one) survive.
  * relayPkh is optional: the client learns it from the relay.
+ * debug: the client logs its activity to the console (for developers).
  *
  * start() first checks that the browser can run the UI and rejects with
  * an UnsupportedBrowserError (message meant for the user) if it cannot.
@@ -38,6 +39,7 @@ export class WebUi {
     storage = null,
     recipientPublicKeyHex = null,
     relays = [],
+    debug = false,
   }) {
 
     insist(privateKeyHex, "string");
@@ -49,6 +51,7 @@ export class WebUi {
     this.storage = storage;
     this.recipientPublicKeyHex = recipientPublicKeyHex === null ? null : parseKey(recipientPublicKeyHex, "recipientPublicKeyHex");
     this.relays = relays.map(normalizeRelay);
+    this.debug = debug;
     this.client = null;
     this.shell = null;
     this.stylesheet = null;
@@ -72,6 +75,7 @@ export class WebUi {
     const client = new SmerpClient({
       identity,
       storage: this.storage ?? new IndexedDbStorage(identity.publicKeyHex),
+      debug: this.debug,
     });
 
     try {

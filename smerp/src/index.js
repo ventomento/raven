@@ -52,4 +52,4 @@ export {
 } from "./auth/request-signer.js";
 
 // logging
-export { LightLog } from "./log/light-log.js";
+export { Logger } from "./log/logger.js";

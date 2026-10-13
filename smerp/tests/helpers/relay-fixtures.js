@@ -165,15 +165,28 @@ for (const method of [
 }
 
 // A logger that records what it is told.
+// The logger contract (log/logger.js). Entries are [level, message, fields];
+// a child records into the same entries with its fields merged.
 export class RecordingLogger {
 
-    constructor() {
-        this.entries = [];
+    constructor({ entries = [], fields = {} } = {}) {
+        this.enabled = true;
+        this.entries = entries;
+        this.fields = fields;
     }
 
-    warn(...args) { this.entries.push(["warn", ...args]); }
-    info(...args) { this.entries.push(["info", ...args]); }
-    error(...args) { this.entries.push(["error", ...args]); }
+    debug(message, fields) { this.record("debug", message, fields); }
+    info(message, fields) { this.record("info", message, fields); }
+    warn(message, fields) { this.record("warn", message, fields); }
+    error(message, fields) { this.record("error", message, fields); }
+
+    child(fields) {
+        return new RecordingLogger({ entries: this.entries, fields: { ...this.fields, ...fields } });
+    }
+
+    record(level, message, fields) {
+        this.entries.push([level, message, { ...this.fields, ...fields }]);
+    }
 
     warnings() {
         return this.entries.filter(([level]) => level === "warn").map(([, message]) => message);

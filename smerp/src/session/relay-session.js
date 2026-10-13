@@ -25,7 +25,7 @@ import { RequestBuilder } from "./request-builder.js";
  * Injected, beside the stored relay record:
  *
  *   identity      PrivateIdentity of this client; requests are signed with it
- *   transporter   { transport({ url, options, timeout, logger }) → { status, headers, body } }
+ *   transporter   { transport({ url, options, timeout }) → { status, headers, body } }
  *                 (transport/transport-interface.js)
  *   consume       (frames) → Promise. Handles a batch's envelopes (each an
  *                 ArrayBuffer). Throws only on a local fault (storage):
@@ -127,6 +127,7 @@ export class RelaySession {
         const now = this.clock.now();
 
         if (now < this.backoffUntil() || now < this.pausedUntil) {
+            this.logger.debug("waiting", { backoffUntil: this.backoffUntil(), pausedUntil: this.pausedUntil });
             return false;
         }
 
@@ -155,7 +156,7 @@ export class RelaySession {
         let response;
 
         try {
-            response = await this.transporter.transport({ ...request, logger: this.logger });
+            response = await this.transporter.transport(request);
         }
         catch (error) {
             this.recordFailure(error.message);
@@ -170,6 +171,7 @@ export class RelaySession {
                 return this.consumeBatch(response, requested);
 
             case Status.NO_CONTENT:
+                this.logger.debug("caught up", { cursor: requested });
                 this.recordSuccess();
                 return false;
 
@@ -216,6 +218,8 @@ export class RelaySession {
 
         this.cursor = cursor;
 
+        this.logger.debug("batch", { from: requested, to: cursor, frames: frames.length });
+
         if (error) {
             this.recordFailure(error);
             return false;
@@ -243,7 +247,7 @@ export class RelaySession {
         }
 
         const request = await this.requestBuilder.buildPost(envelopeBytes, this.relayPkh);
-        const response = await this.transporter.transport({ ...request, logger: this.logger });
+        const response = await this.transporter.transport(request);
 
         const relayKeyChanged = this.adoptRelayPkh(response);
 
@@ -281,6 +285,8 @@ export class RelaySession {
         const waitMs = Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : 5000;
 
         this.pausedUntil = Math.max(this.pausedUntil, this.clock.now() + waitMs);
+
+        this.logger.info("paused by relay", { waitMs });
     }
 
     // =====================================================
@@ -300,13 +306,17 @@ export class RelaySession {
 
         if (!relayPkh) {
             if (value !== undefined) {
-                this.logger.warn(`Invalid relay pkh from ${this.relayUrl}: ${value}`);
+                this.logger.warn("invalid relay pkh", { value });
             }
             return false;
         }
 
         const changed = relayPkh !== this.relayPkh;
         this.relayPkh = relayPkh;
+
+        if (changed) {
+            this.logger.info("relay key learned", { relayPkh });
+        }
 
         return changed;
     }
@@ -333,11 +343,11 @@ export class RelaySession {
     // The reason is shown to the user as lastFailureReason.
     recordFailure(reason) {
 
-        this.logger.warn(`Relay failure: ${this.relayUrl}: ${reason}`);
-
         this.failureCount += 1;
         this.lastFailureAt = this.clock.now();
         this.lastFailureReason = reason;
+
+        this.logger.warn("relay failure", { reason, failureCount: this.failureCount });
     }
 }
 

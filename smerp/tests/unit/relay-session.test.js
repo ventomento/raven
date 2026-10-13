@@ -215,7 +215,7 @@ test("a malformed relay key header is ignored with a warning", async () => {
     await ctx.session.step();
 
     assert.equal(ctx.session.relayPkh, RELAY_PKH);
-    assert.ok(ctx.logger.warnings().some(message => /Invalid relay pkh/.test(message)));
+    assert.ok(ctx.logger.warnings().some(message => /invalid relay pkh/.test(message)));
 });
 
 test("a relay key in 0x or uppercase form is normalized; a changed one is adopted", async () => {
