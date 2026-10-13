@@ -2,11 +2,12 @@
 
 import { EventTypes } from "../../../index.js";
 import { h, replaceChildren, perFrame } from "../dom.js";
-import { shortHex, formatTime } from "../format.js";
+import { formatTime } from "../format.js";
 
 /**
  * Configured relays with their sync health, a toggle to disable one, a
- * delete button, an access token editor, and a form to add a relay.
+ * delete button, an access token editor, a form to add a relay, and
+ * what the user needs to know about relays.
  */
 export class RelaysView {
 
@@ -24,7 +25,8 @@ export class RelaysView {
     replaceChildren(container,
       h("h2", {}, "Relays"),
       this.list,
-      this.#addForm()
+      this.#addForm(),
+      aboutRelays()
     );
     void this.#render();
   }
@@ -81,10 +83,6 @@ export class RelaysView {
       h("dl", { class: "relay-meta small" },
         h("dt", { class: "muted" }, "Type"),
         h("dd", {}, relay.relayType),
-        h("dt", { class: "muted" }, "Public key"),
-        relay.relayPkh
-          ? h("dd", { class: "mono", title: relay.relayPkh }, shortHex(relay.relayPkh))
-          : h("dd", { class: "muted" }, "Learned on first sync"),
         h("dt", { class: "muted" }, "Access token"),
         relay.relayToken
           ? h("dd", { class: "mono" }, maskToken(relay.relayToken))
@@ -214,4 +212,29 @@ function tokenInput(placeholder = "Access token") {
 // Never show a token in full.
 function maskToken(token) {
   return `••••${token.slice(-4)}`;
+}
+
+function aboutRelays() {
+
+  return h("section", { class: "card" },
+    h("div", { class: "label" }, "About relays"),
+    h("p", { class: "muted small" },
+      h("strong", {}, "What a relay is."),
+      " Relays store encrypted messages, forward them to other relays, and " +
+      "do their best to deliver each one to its recipient. They can't " +
+      "decrypt your messages."),
+    h("p", { class: "muted small" },
+      h("strong", {}, "Why use several."),
+      " Each message you send goes to all your enabled relays. More relays " +
+      "means a message still gets through when one is down or drops it."),
+    h("p", { class: "muted small" },
+      h("strong", {}, "Archive or relay."),
+      " An archive keeps messages indefinitely. A relay keeps them only for " +
+      "a while, typically until you've downloaded them or about a week has " +
+      "passed. Choose the type the relay's operator states. Neither type " +
+      "guarantees delivery."),
+    h("p", { class: "muted small" },
+      h("strong", {}, "Access token."),
+      " Only needed if the relay requires one. Its operator gives it to you.")
+  );
 }
