@@ -1,22 +1,11 @@
-// src/envelope/envelope-writer.js
-
 import { BinaryWriter } from "./binary.js";
 import { EnvelopeLayout } from "./layout.js";
 
 const { HEADER_SIZE, MAX_SIZE, SIZES } = EnvelopeLayout;
 
-// Writes an envelope into one buffer in two steps, so the header exists as
-// bytes before encryption and is serialized only once:
-//
-//   const writer = new EnvelopeWriter(EnvelopeWriter.size(ciphertextLength));
-//   const header = writer.writeHeader(fields);   // the AES-GCM aad
-//   writer.writeBody({ aes_gcm_iv, ciphertext_with_tag });
-//   return writer.finish();
 export class EnvelopeWriter {
   #writer;
 
-  // Byte size of an envelope whose ciphertext (without tag) is ciphertextLength.
-  // Throws if that envelope would exceed MAX_SIZE.
   static size(ciphertextLength) {
     if (!Number.isInteger(ciphertextLength) || ciphertextLength < 0) {
       throw new Error("ciphertextLength must be a non-negative integer");
@@ -43,8 +32,6 @@ export class EnvelopeWriter {
     this.#writer = new BinaryWriter(byteSize);
   }
 
-  // Writes the header; payload_size is taken from the buffer size.
-  // Returns a view of the written header bytes.
   writeHeader(fields) {
     this.#expectOffset(0, "writeHeader");
     validateHeaderFields(fields);
@@ -61,7 +48,6 @@ export class EnvelopeWriter {
     return w.written();
   }
 
-  // The body must fill the rest of the buffer exactly.
   writeBody({ aes_gcm_iv, ciphertext_with_tag }) {
     this.#expectOffset(HEADER_SIZE, "writeBody");
 
@@ -74,7 +60,6 @@ export class EnvelopeWriter {
     this.#writer.bytes(ciphertext_with_tag);
   }
 
-  // Returns the envelope. Throws unless header and body were both written.
   finish() {
     return this.#writer.finish();
   }

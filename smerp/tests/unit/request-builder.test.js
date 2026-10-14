@@ -5,9 +5,6 @@ import { PrivateIdentity } from "../../../smep/src/index.js";
 import { RequestBuilder } from "../../src/session/request-builder.js";
 import { AuthHeaders, RequestVerifier } from "../../src/auth/request-signer.js";
 
-// Requests are checked with the relay side's RequestVerifier, so a pass
-// here means a spec relay accepts them (auth_rfc sections 5 and 9).
-
 const NOW = 1_750_201_234_567;
 const clock = { now: () => NOW };
 const RELAY_URL = "https://relay.test/base";
@@ -23,7 +20,6 @@ async function setup(options = {}) {
     return { client, relay, builder, verifier };
 }
 
-// What the relay sees: the target relative to its own URL.
 function verify(verifier, request) {
 
     const target = request.url.slice(RELAY_URL.length);

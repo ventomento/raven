@@ -1,8 +1,3 @@
-/* webui/src/styles/webui.css
- *
- * All styling for webui. Scoped under .webui (the root element).
- */
-
 .webui {
   --bg: #f6f7f9;
   --surface: #ffffff;
@@ -48,12 +43,9 @@
   box-sizing: border-box;
 }
 
-/* Author display rules would otherwise override the hidden attribute. */
 .webui [hidden] {
   display: none !important;
 }
-
-/* ---------- layout ---------- */
 
 .webui .top {
   position: sticky;
@@ -79,8 +71,6 @@
   font-size: 1.1rem;
   margin: 4px 0 var(--gap);
 }
-
-/* ---------- header ---------- */
 
 .webui .header-row {
   display: flex;
@@ -113,8 +103,6 @@
   cursor: pointer;
   overflow-wrap: anywhere;
 }
-
-/* ---------- tabs ---------- */
 
 .webui .tabs {
   display: flex;
@@ -151,8 +139,6 @@
   font-weight: 600;
   text-align: center;
 }
-
-/* ---------- controls ---------- */
 
 .webui button,
 .webui input,
@@ -269,8 +255,6 @@
   font-weight: 600;
 }
 
-/* ---------- lists and cards ---------- */
-
 .webui .list,
 .webui .messages {
   list-style: none;
@@ -343,8 +327,6 @@
   text-align: center;
 }
 
-/* ---------- relays ---------- */
-
 .webui .relay {
   display: flex;
   flex-direction: column;
@@ -387,8 +369,6 @@
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-
-/* ---------- thread ---------- */
 
 .webui .thread-head {
   display: flex;
@@ -458,8 +438,6 @@
   margin-top: 4px;
 }
 
-/* ---------- identity ---------- */
-
 .webui .label {
   font-weight: 600;
   margin-bottom: 4px;
@@ -475,8 +453,6 @@
   font-size: 0.85rem;
 }
 
-/* ---------- text helpers ---------- */
-
 .webui .mono,
 .webui code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -487,8 +463,6 @@
 .webui .error { color: var(--danger); }
 .webui .warn { color: var(--warn); }
 .webui .ok { color: var(--ok); }
-
-/* ---------- small screens ---------- */
 
 @media (max-width: 480px) {
   .webui { --gap: 10px; }

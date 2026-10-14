@@ -4,8 +4,6 @@ import http from "node:http";
 
 import { TransportDefault } from "../../src/transport/transport-default.js";
 
-// TransportDefault against a local HTTP server.
-
 async function startServer(t, handler) {
 
     const server = http.createServer(handler);
@@ -62,7 +60,7 @@ test("sends method, headers and body; non-200 statuses are returned, not thrown"
 
 test("a request over its timeout fails with a timeout error", async (t) => {
 
-    const url = await startServer(t, () => { /* never answers */ });
+    const url = await startServer(t, () => {});
 
     await assert.rejects(
         TransportDefault.transport({ url, timeout: 50 }),

@@ -1,24 +1,11 @@
-// Test doubles for sync: a virtual clock and a scriptable relay transport.
-
 import { encodeBatch, MAX_BATCH_BYTES } from "../../src/protocol/index.js";
 
-/**
- * Clock with virtual time.
- *
- * sleep() never waits for real: once nothing else is runnable, the
- * earliest sleeper wakes and time jumps to it.
- *
- * timer() callbacks only fire when the test moves time: advance(ms)
- * fires every timer due by then, and drive(promise) jumps from timer to
- * timer until the promise settles. So a pool's background timers (backoff,
- * 429 pauses) never move time behind the test's back.
- */
 export class VirtualClock {
 
     constructor(start = 1_000_000) {
         this.t = start;
-        this.timers = [];   // sleepers, woken automatically
-        this.alarms = [];   // timer() callbacks, fired by advance/drive
+        this.timers = [];
+        this.alarms = [];
         this.scheduled = false;
     }
 
@@ -45,10 +32,6 @@ export class VirtualClock {
         this.#fireDue();
     }
 
-    /**
-     * Let real async work run, and whenever it has gone quiet jump to the
-     * next timer, until promise settles. Returns promise.
-     */
     async drive(promise, { maxMs = 24 * 60 * 60 * 1000 } = {}) {
 
         let settled = false;
@@ -123,23 +106,12 @@ export class VirtualClock {
     }
 }
 
-/**
- * Transport for any number of fake relays, addressed by origin. Serves
- * GET /envelopes like the mock relay (a batch of the records after the
- * cursor, at most `batchSize` of them; cursor = last record id) and
- * accepts POSTs. Every request is logged in `requests`.
- *
- * `hook(request)` may return a response to override the default one.
- * `setRelayPkh(relayUrl, pkh)` makes that relay announce its key as
- * x-smerp-relay-pkh on every response, hooked ones included (unless the
- * hook sets the header itself).
- */
 export class FakeRelays {
 
     constructor(clock) {
         this.clock = clock;
-        this.records = new Map(); // relayUrl -> [{ id, body }]
-        this.relayPkhs = new Map(); // relayUrl -> pkh
+        this.records = new Map();
+        this.relayPkhs = new Map();
         this.requests = [];
         this.hook = null;
         this.batchSize = Infinity;
@@ -232,5 +204,4 @@ export class FakeRelays {
     }
 }
 
-// Lets queued event-bus microtasks run.
 export const tick = () => new Promise(resolve => setImmediate(resolve));

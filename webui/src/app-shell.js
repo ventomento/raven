@@ -1,5 +1,3 @@
-// webui/src/app-shell.js
-
 import { EventTypes } from "../../index.js";
 import { h, replaceChildren, perFrame } from "./dom.js";
 import { Header } from "./components/header.js";
@@ -17,16 +15,6 @@ const TABS = [
   { id: "identity", label: "Identity", View: IdentityView },
 ];
 
-/**
- * Page layout and navigation: header, tab bar and the active view.
- *
- * Holds the only client subscriptions of the UI and forwards every event
- * to the active view, so a view never subscribes itself and destroy()
- * is the one place listeners are removed.
- *
- * View contract: constructor({ client, shell, ... }), mount(container),
- * onEvent(event), unmount().
- */
 export class AppShell {
 
   constructor({ client, identity, root, recipientPublicKeyHex = null }) {
@@ -70,7 +58,6 @@ export class AppShell {
     this.updateUnread();
   }
 
-  // options: extra constructor options for the view.
   selectTab(id, options = {}) {
     const { View } = TABS.find(tab => tab.id === id);
     this.tabBar.select(id);

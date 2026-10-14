@@ -1,17 +1,7 @@
-// webui/src/components/compose-form.js
-
 import { ContentTypes, DispatchError } from "../../../index.js";
 import { h } from "../dom.js";
 import { formatBytes, parsePublicKeyHex } from "../format.js";
 
-/**
- * Form that sends one message: either text or one file, never both, as
- * the protocol carries one payload per envelope.
- *
- * recipientPublicKeyHex: fixed recipient (thread reply). Omit it to show
- * a recipient field.
- * onSent(recipientPublicKeyHex): called after a successful send.
- */
 export class ComposeForm {
 
   constructor({ client, recipientPublicKeyHex = null, onSent = () => {} }) {

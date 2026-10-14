@@ -1,5 +1,3 @@
-// webui/src/web-ui.js
-
 import { SmerpClient, PrivateIdentity, IndexedDbStorage } from "../../index.js";
 import { insist } from "../../smep/src/util/util.js";
 import { h } from "./dom.js";
@@ -9,28 +7,6 @@ import { browserSupport, UnsupportedBrowserError } from "./browser-support.js";
 
 const STYLESHEET_URL = new URL("./styles/webui.css", import.meta.url);
 
-/**
- * Browser UI for a SmerpClient. Takes over root (the whole body by
- * default):
- *
- *   const ui = new WebUi({ privateKeyHex });
- *   await ui.start();
- *
- * storage defaults to an IndexedDB database per identity, so history
- * survives reloads. The private key itself is never stored.
- *
- * recipientPublicKeyHex: opens the Send view with this recipient filled
- * in instead of the chat list.
- * relays: [{ relayUrl, relayType, relayPkh?, relayToken? }] added to storage on start
- * unless a relay with that relayUrl is already stored. Stored relays are
- * left untouched, so the user's edits (e.g. disabling one) survive.
- * relayPkh is optional: the client learns it from the relay.
- * debug: the client logs its activity to the console (for developers).
- *
- * start() first checks that the browser can run the UI and rejects with
- * an UnsupportedBrowserError (message meant for the user) if it cannot.
- * A host page can run the same check up front with browserSupport().
- */
 export class WebUi {
 
   constructor({
@@ -63,7 +39,6 @@ export class WebUi {
       return;
     }
 
-    // Only the default storage needs IndexedDB.
     const support = await browserSupport({ indexedDb: !this.storage });
 
     if (!support.ok) {
@@ -125,7 +100,6 @@ export class WebUi {
     }
   }
 
-  // Resolves once loaded (or failed) so the first render is styled.
   #loadStylesheet() {
 
     return new Promise(resolve => {
@@ -153,8 +127,6 @@ function parseKey(value, name) {
   return hex;
 }
 
-// Same normalization as the Add relay form, so a seeded relay and one
-// typed in by hand get the same relayUrl key.
 function normalizeRelay({ relayUrl, relayType = "relay", relayPkh, relayToken }) {
 
   insist(relayUrl, "string");

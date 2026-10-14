@@ -1,14 +1,6 @@
-// webui/src/views/send-view.js
-
 import { h, replaceChildren } from "../dom.js";
 import { ComposeForm } from "../components/compose-form.js";
 
-/**
- * New message to any recipient. After sending, opens the thread with
- * that recipient.
- *
- * recipientPublicKeyHex: prefills the (still editable) recipient field.
- */
 export class SendView {
 
   constructor({ client, shell, recipientPublicKeyHex = null }) {

@@ -1,10 +1,5 @@
-// smep: crypto primitives and the encrypted envelope protocol.
-// Use these to build your own client; SmerpClient is built on them.
-
-// identity
 export { PrivateIdentity, PublicIdentity } from "./identity/identity.js";
 
-// envelope protocol
 export {
   encrypt,
   decrypt,
@@ -18,7 +13,6 @@ export { readEnvelope } from "./envelope/envelope-reader.js";
 export { EnvelopeLayout } from "./envelope/layout.js";
 export { ContentTypes } from "./envelope/content-types.js";
 
-// crypto primitives
 export {
   generateKeyPair,
   importPublicKey,
@@ -38,7 +32,6 @@ export { sha256 } from "./crypto/hash.js";
 export { randomBytes, randomIV } from "./crypto/random.js";
 export { cryptoSupport } from "./crypto/support.js";
 
-// encodings
 export { bytesToHex, hexToBytes } from "./encoding/hex.js";
 export {
   bytesToBase64,
@@ -48,5 +41,4 @@ export {
 } from "./encoding/base64.js";
 export { encodeUtf8, decodeUtf8 } from "./encoding/utf8.js";
 
-// util
 export { insist } from "./util/util.js";

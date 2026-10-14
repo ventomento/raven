@@ -6,13 +6,9 @@ import { RelaySession } from "../../src/session/relay-session.js";
 import { Ingestor } from "../../src/ingest/ingestor.js";
 import { StorageMemory } from "../../src/storage/storage-memory.js";
 import { TransportDefault } from "../../src/transport/transport-default.js";
-import { RequestSigner } from "../../src/auth/request-signer.js";
+import { RequestSigner } from "../helpers/request-signer.js";
 import { identity, envelopeFor, startRelay, RecordingLogger } from "../helpers/relay-fixtures.js";
 
-// The sync modules wired by hand, the way SmerpClient wires them, against
-// the mock relay over HTTP: their contracts fit without the client.
-
-// Upload as the sender, signed (the mock relay requires it).
 async function upload(server, relayUrl, sender, envelope) {
 
     const target = "/envelopes";
@@ -30,17 +26,13 @@ async function upload(server, relayUrl, sender, envelope) {
     assert.equal(response.status, 200);
 }
 
-/**
- * bob's pipeline: one Ingestor, one RelaySession per relay, a Scheduler.
- * Every request and every save is logged.
- */
 async function pipeline(relays, { concurrency = 6 } = {}) {
 
     const bob = await identity();
     const storage = new StorageMemory();
     const logger = new RecordingLogger();
     const requests = [];
-    const saved = new Map();     // relayUrl -> last state
+    const saved = new Map();
     const announced = [];
 
     const transporter = {
@@ -87,7 +79,6 @@ test("first contact, one batch for many envelopes, then caught up", async (t) =>
 
     await bob.scheduler.wake();
 
-    // unsigned 401 teaches the relay key, then one signed batch, then 204
     assert.equal(bob.requests.length, 3);
     assert.equal("x-smerp-signature" in bob.requests[0].options.headers, false);
     assert.equal("x-smerp-signature" in bob.requests[1].options.headers, true);
@@ -112,7 +103,6 @@ test("a session built from the saved state resumes without first contact", async
     await upload(server, relay.relayUrl, alice, await envelopeFor(alice, first.bob, "one"));
     await first.scheduler.wake();
 
-    // the same identity and storage, a new session from the saved record
     const resumed = { ...relay, ...first.saved.get(relay.relayUrl) };
     const requests = [];
 

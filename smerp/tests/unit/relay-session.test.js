@@ -7,9 +7,6 @@ import { encodeBatch } from "../../src/protocol/index.js";
 import { VirtualClock } from "../helpers/fakes.js";
 import { RecordingLogger } from "../helpers/relay-fixtures.js";
 
-// One relay session against a scripted transporter. Frames are opaque to
-// the session, so plain bytes stand in for envelopes.
-
 const RELAY_URL = "http://relay.test";
 const RELAY_PKH = "ab".repeat(32);
 const OTHER_PKH = "cd".repeat(32);
@@ -17,7 +14,6 @@ const OTHER_PKH = "cd".repeat(32);
 const bytes = (...values) => new Uint8Array(values);
 const asArrays = (frames) => frames.map(frame => Array.from(new Uint8Array(frame)));
 
-// Responses
 const batch = (cursor, frames, headers = {}) => ({
     status: 200,
     headers: { "x-smerp-cursor": String(cursor), ...headers },
@@ -26,10 +22,6 @@ const batch = (cursor, frames, headers = {}) => ({
 const noContent = (headers = {}) => ({ status: 204, headers, body: new Uint8Array(0) });
 const status = (code, headers = {}) => ({ status: code, headers, body: new Uint8Array(0) });
 
-/**
- * ctx.respond(request) answers each request; ctx.requests logs them,
- * ctx.consumed the batches handed to consume, ctx.saved every save.
- */
 async function setup({ relay = {}, respond = () => noContent(), consume, save } = {}) {
 
     const clock = new VirtualClock();
@@ -64,16 +56,11 @@ async function setup({ relay = {}, respond = () => noContent(), consume, save } 
 
 const signed = (request) => "x-smerp-signature" in request.options.headers;
 
-// A relay record whose failures are long past their backoff.
 const failedLongAgo = (clock, failureCount = 2) => ({
     failureCount,
     lastFailureAt: clock.now() - 2 * 60 * 60 * 1000,
     lastFailureReason: "old",
 });
-
-// ============================================================
-// GET responses
-// ============================================================
 
 test("200: consumes the frames, then advances the cursor, records success, saves", async () => {
 
@@ -275,10 +262,6 @@ test("an unexpected status and a transport error are failures", async () => {
     assert.equal(network.saved.at(-1).failureCount, 1);
 });
 
-// ============================================================
-// Backoff
-// ============================================================
-
 test("backoff doubles from 30 s and is capped at 1 h", () => {
 
     const minutes = (n) => n * 60 * 1000;
@@ -294,14 +277,14 @@ test("while backing off, step declines without a request", async () => {
 
     const ctx = await setup({ respond: () => status(500) });
 
-    await ctx.session.step();                // failure 1: wait 30 s
+    await ctx.session.step();
 
     ctx.clock.advance(30 * 1000 - 1);
     assert.equal(await ctx.session.step(), false);
     assert.equal(ctx.requests.length, 1);
 
     ctx.clock.advance(1);
-    await ctx.session.step();                // failure 2: wait 60 s
+    await ctx.session.step();
     assert.equal(ctx.requests.length, 2);
     assert.equal(ctx.session.failureCount, 2);
 
@@ -314,16 +297,11 @@ test("while backing off, step declines without a request", async () => {
     await ctx.session.step();
     assert.equal(ctx.requests.length, 3);
 
-    // a success ends the backoff
     assert.equal(ctx.session.failureCount, 0);
     assert.equal(ctx.session.lastFailureReason, null);
     await ctx.session.step();
     assert.equal(ctx.requests.length, 4);
 });
-
-// ============================================================
-// Rate limit
-// ============================================================
 
 test("burst of 3, then step returns true without a request until notBefore", async () => {
 
@@ -341,7 +319,6 @@ test("burst of 3, then step returns true without a request until notBefore", asy
     assert.equal(ctx.requests.length, 3);
     assert.equal(ctx.saved.length, 3, "nothing to save without a request");
 
-    // 2 tokens per second
     assert.equal(ctx.session.notBefore(), ctx.clock.now() + 500);
 
     ctx.clock.advance(500);
@@ -359,10 +336,6 @@ test("notBefore holds neither backoff nor a 429 pause", async () => {
     await paused.session.step();
     assert.equal(paused.session.notBefore(), paused.clock.now());
 });
-
-// ============================================================
-// Local faults
-// ============================================================
 
 test("consume throwing rejects the step: cursor kept, relay not blamed, nothing saved", async () => {
 
@@ -386,10 +359,6 @@ test("save throwing rejects the step", async () => {
 
     await assert.rejects(ctx.session.step(), fault);
 });
-
-// ============================================================
-// Config and state
-// ============================================================
 
 test("state is restored from the stored relay record, and the token is sent", async () => {
 
@@ -450,10 +419,6 @@ test("the constructor insists on its dependencies", async () => {
         assert.throws(() => new RelaySession({ ...ok, ...broken }), Object.keys(broken)[0]);
     }
 });
-
-// ============================================================
-// POST (sends)
-// ============================================================
 
 test("post: 200 resolves, takes no token, leaves health and storage alone", async () => {
 

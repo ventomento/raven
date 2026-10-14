@@ -1,6 +1,3 @@
-
-// test/protocol.test.js
-
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -21,7 +18,6 @@ import { ContentTypes } from "../src/envelope/content-types.js";
 
 import { exportPublicKeyBytes } from "../src/crypto/x25519.js";
 
-// Byte offsets in a serialized envelope (smep_rfc.txt section 4).
 const OFFSET = {
   VERSION: 0,
   SENDER: 1,
@@ -32,7 +28,6 @@ const OFFSET = {
   CIPHERTEXT: 90,
 };
 
-// alice -> bob envelope bytes.
 async function aliceToBob(plaintext = "hello") {
   const alice = await PrivateIdentity.generate();
   const bob = await PrivateIdentity.generate();
@@ -46,16 +41,11 @@ async function aliceToBob(plaintext = "hello") {
   return { alice, bob, envelopeBytes };
 }
 
-// Copy of buffer with one byte flipped.
 function flipByte(buffer, offset) {
   const copy = new Uint8Array(buffer.slice(0));
   copy[offset] ^= 0xff;
   return copy.buffer;
 }
-
-// ============================================================
-// ROUNDTRIP
-// ============================================================
 
 test("encrypt/decrypt roundtrip", async () => {
   const alice = await PrivateIdentity.generate();
@@ -90,10 +80,6 @@ test("encrypt/decrypt roundtrip", async () => {
   assert.ok(typeof result.timestamp === "number");
 });
 
-// ============================================================
-// SENDER CAN DECRYPT OWN MESSAGE
-// ============================================================
-
 test("sender can decrypt own outbound message", async () => {
   const alice = await PrivateIdentity.generate();
   const bob = await PrivateIdentity.generate();
@@ -113,10 +99,6 @@ test("sender can decrypt own outbound message", async () => {
 
   assert.equal(result.plaintext, plaintext);
 });
-
-// ============================================================
-// UNIQUE ENCRYPTION
-// ============================================================
 
 test("same plaintext encrypts differently", async () => {
   const alice = await PrivateIdentity.generate();
@@ -143,10 +125,6 @@ test("same plaintext encrypts differently", async () => {
   );
 });
 
-// ============================================================
-// WRONG IDENTITY
-// ============================================================
-
 test("unrelated identity cannot decrypt", async () => {
   const alice = await PrivateIdentity.generate();
   const bob = await PrivateIdentity.generate();
@@ -166,10 +144,6 @@ test("unrelated identity cannot decrypt", async () => {
   });
 });
 
-// ============================================================
-// ENVELOPE API
-// ============================================================
-
 test("createEnvelope/decryptEnvelope roundtrip", async () => {
   const { bob, envelopeBytes } = await aliceToBob("envelope api");
 
@@ -186,10 +160,6 @@ test("createEnvelope/decryptEnvelope roundtrip", async () => {
     "envelope api"
   );
 });
-
-// ============================================================
-// BINARY PAYLOAD
-// ============================================================
 
 test("binary payload roundtrip", async () => {
   const alice = await PrivateIdentity.generate();
@@ -228,11 +198,6 @@ test("binary payload roundtrip", async () => {
   );
 });
 
-// ============================================================
-// SIZE LIMIT
-// ============================================================
-
-// Largest plaintext: 4 MiB minus header, iv and tag.
 const MAX_PLAINTEXT =
   EnvelopeLayout.MAX_SIZE - EnvelopeLayout.HEADER_SIZE - EnvelopeLayout.SIZES.MIN_PAYLOAD;
 
@@ -261,12 +226,6 @@ test("encrypt accepts the largest plaintext and rejects one byte more", async ()
   );
 });
 
-// ============================================================
-// TAMPERING TESTS
-// ============================================================
-
-// Every byte except the version is authenticated: the header as AAD,
-// the payload by the tag. (A changed version fails to parse.)
 const tamperCases = [
   ["sender public key", OFFSET.SENDER],
   ["recipient public key", OFFSET.RECIPIENT],
@@ -320,10 +279,6 @@ test("read header is the envelope's first bytes", async () => {
     new Uint8Array(envelopeBytes, 0, EnvelopeLayout.HEADER_SIZE)
   );
 });
-
-// ============================================================
-// STRUCTURE TESTS
-// ============================================================
 
 test("truncated serialized envelope fails", async () => {
   const alice = await PrivateIdentity.generate();
@@ -383,10 +338,6 @@ test("ArrayBuffer plaintext roundtrip", async () => {
 
   assert.deepEqual(Array.from(result.plaintext), [1, 2, 3]);
 });
-
-// ============================================================
-// ENVELOPE HASH
-// ============================================================
 
 test("envelopeHash is the hex sha256 of the envelope bytes", async () => {
   const { envelopeBytes } = await aliceToBob();

@@ -1,5 +1,3 @@
-// concurrency-limiter.test.js
-
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -71,7 +69,6 @@ test(
                                 running
                             );
 
-                        // Force scheduling interleavings.
                         await sleep(
                             Math.random() * 10
                         );
@@ -224,7 +221,6 @@ test(
                             `running=${running}`
                         );
 
-                        // Force microtask + macrotask mixing.
                         await Promise.resolve();
 
                         await sleep(

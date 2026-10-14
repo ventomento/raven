@@ -1,8 +1,3 @@
-// A stand-in for SmerpClient: the public API the webui uses, backed by a
-// StorageMemory so queries (paging, sorting) behave like the real ones.
-// Every call is logged in `calls`; emit(event) delivers an event to the
-// subscribers synchronously.
-
 import { StorageMemory } from "../../../smerp/src/storage/storage-memory.js";
 
 export const PEER = "bb".repeat(32);
@@ -15,9 +10,8 @@ export class FakeClient {
         this.status = "running";
         this.storage = new StorageMemory();
         this.calls = [];
-        this.listeners = new Map();   // type -> Set
+        this.listeners = new Map();
 
-        // send(): throws sendError if set, else resolves sendResult.
         this.sendError = null;
         this.sendResult = { hash: "u".repeat(64), delivered: ["http://a.test"], failed: [] };
     }
@@ -29,8 +23,6 @@ export class FakeClient {
     callsTo(name) {
         return this.calls.filter(([called]) => called === name).map(([, ...args]) => args);
     }
-
-    // ---------------------------------------------- events
 
     on(type, callback) {
 
@@ -52,8 +44,6 @@ export class FakeClient {
     listenerCount() {
         return [...this.listeners.values()].reduce((sum, set) => sum + set.size, 0);
     }
-
-    // ---------------------------------------------- client API
 
     async start() { this.record("start"); this.status = "running"; }
 
@@ -136,7 +126,6 @@ export class FakeClient {
     }
 }
 
-// The envelope record the client stores (see ingest/ingestor.js).
 export function envelope({
     hash,
     peer = PEER,

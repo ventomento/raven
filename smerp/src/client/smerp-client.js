@@ -1,5 +1,3 @@
-// src/client/smerp-client.js
-
 import {
     PrivateIdentity,
     PublicIdentity,
@@ -25,8 +23,6 @@ export const ClientStatus = Object.freeze({
     STOPPING: "stopping",
 });
 
-// Relay record fields written by sessions (RelaySession.state()). A user's
-// relaysPut keeps them unless it sets them itself.
 const SYNC_FIELDS = Object.freeze([
     "cursor",
     "relayPkh",
@@ -36,8 +32,6 @@ const SYNC_FIELDS = Object.freeze([
     "lastFailureReason",
 ]);
 
-// Sync fields worth a RELAY event. lastSuccessAt changes on every
-// successful request, so it alone is not.
 const NOTIFY_FIELDS = Object.freeze([
     "cursor",
     "relayPkh",
@@ -45,25 +39,6 @@ const NOTIFY_FIELDS = Object.freeze([
     "lastFailureReason",
 ]);
 
-/**
- * Reference smerp client. Headless: a UI reads local data through the
- * get methods, acts through send/markRead/renameConversation/relays*, and reacts to events
- * subscribed with on().
- *
- * Built from three modules:
- *
- *   Scheduler     (sync/)     runs the relay sessions' sync steps, N at a time
- *   RelaySession  (session/)  one per enabled relay: fetches, posts, owns its state
- *   Ingestor      (ingest/)   stores fetched envelopes and their conversations
- *
- * Every envelope enters storage through the Ingestor, after a sync
- * fetched it, our own sent ones included: an envelope counts as sent once
- * a relay accepted it and it could be downloaded back.
- *
- * Relay changes stop the scheduler, write, and build new sessions and a
- * new scheduler. Sessions only save during steps and posts, so their
- * saves cannot interleave with the user's relay writes.
- */
 export class SmerpClient {
 
     constructor({
@@ -71,11 +46,9 @@ export class SmerpClient {
         transporter = TransportDefault,
         storage = new StorageMemory(),
         clock = RealClock,
-        // Developer logs to the console; ignored when a logger is given.
         debug = false,
         logger = null,
         syncIntervalMs = 60 * 1000,
-        // Sync requests in flight at once, over all relays.
         concurrency = Scheduler.DEFAULTS.concurrency,
     }) {
 
@@ -95,15 +68,11 @@ export class SmerpClient {
 
         this.ingestor = null;
         this.scheduler = null;
-        this.sessions = new Map();          // relayUrl -> RelaySession, enabled relays
-        this.syncing = null;                // promise of the sync in progress
+        this.sessions = new Map();
+        this.syncing = null;
         this.relayChanges = Promise.resolve();
         this.syncIntervalId = null;
     }
-
-    // =====================================================
-    // Lifecycle
-    // =====================================================
 
     async start() {
 
@@ -176,16 +145,6 @@ export class SmerpClient {
         this.logger.info("stopped");
     }
 
-    // =====================================================
-    // Sync and send
-    // =====================================================
-
-    /**
-     * Sync all enabled relays now. Resolves when the sync is done: no
-     * relay has more to fetch right now, or a relay used its step budget
-     * for this sync (failing and throttled relays, and the rest of a
-     * budget-capped backlog, wait for a later sync). Publishes SYNC start and end. Never rejects.
-     */
     sync() {
 
         this.assertRunning();
@@ -207,18 +166,6 @@ export class SmerpClient {
         return this.syncing;
     }
 
-    /**
-     * Encrypt plaintext for a recipient and upload it to every enabled
-     * relay at once.
-     *
-     * plaintext: string | Uint8Array. contentType defaults to TEXT_UTF8
-     * for strings, UNKNOWN for bytes. The envelope may be at most 4 MiB.
-     *
-     * Resolves with { hash, delivered, failed } once at least one relay
-     * accepted it; throws DispatchError if none did. Nothing is stored
-     * here: the envelope is stored when sync downloads it back (started
-     * here); watch for the ENVELOPE event with this hash.
-     */
     async send(recipientPublicKeyHex, plaintext, { contentType = defaultContentType(plaintext) } = {}) {
 
         this.assertRunning();
@@ -280,27 +227,10 @@ export class SmerpClient {
         };
     }
 
-    // =====================================================
-    // Events
-    // =====================================================
-
-    /**
-     * Subscribe to a client event. Returns an unsubscribe function.
-     * See EventTypes for event names and payloads.
-     */
     on(eventType, callback) {
         return this.eventBus.subscribe(eventType, callback);
     }
 
-    // =====================================================
-    // Envelopes and conversations
-    // =====================================================
-
-    /**
-     * options: {} | { hash } | { publicKeyHex, beforeSentAt?, beforeReceivedAt?, limit? }
-     * Sorted newest first (sentAt, then receivedAt). To page, pass the
-     * sentAt and receivedAt of the previous page's last envelope.
-     */
     async envelopesGet(options = {}) {
 
         this.assertRunning();
@@ -308,10 +238,6 @@ export class SmerpClient {
         return this.storage.envelopesGet(options);
     }
 
-    /**
-     * options: {} | { publicKeyHex }
-     * Sorted by lastMessageAt, newest first.
-     */
     async conversationsGet(options = {}) {
 
         this.assertRunning();
@@ -323,11 +249,6 @@ export class SmerpClient {
         );
     }
 
-    /**
-     * Reset a conversation's unreadCount. Runs in line with ingestion, so
-     * an envelope arriving at the same time is never lost from the count.
-     * Resolves with the conversation, or null if nothing was unread.
-     */
     async markRead(publicKeyHex) {
 
         this.assertRunning();
@@ -335,13 +256,6 @@ export class SmerpClient {
         return this.ingestor.markRead(publicKeyHex);
     }
 
-    /**
-     * Set the conversation's name (a local label for the peer, never
-     * sent), or remove it with "". Trimmed and cut to
-     * MAX_CONVERSATION_NAME characters. Runs in line with ingestion, so
-     * neither loses the other's write. Resolves with the conversation, or
-     * null if there is none.
-     */
     async renameConversation(publicKeyHex, name) {
 
         this.assertRunning();
@@ -349,13 +263,6 @@ export class SmerpClient {
         return this.ingestor.rename(publicKeyHex, name);
     }
 
-    // =====================================================
-    // Relays
-    // =====================================================
-
-    /**
-     * options: {} | { relayUrl }
-     */
     async relaysGet(options = {}) {
 
         this.assertRunning();
@@ -363,16 +270,6 @@ export class SmerpClient {
         return this.storage.relaysGet(options);
     }
 
-    /**
-     * Insert or replace a relay, keyed by relayUrl.
-     *
-     *   { relayUrl, relayType, relayToken?, disabled? }
-     *
-     * relayToken is an access token from the relay's operator, sent as a
-     * bearer token on every request to that relay. Sync fields (cursor,
-     * relayPkh, health) are kept from the stored record unless given.
-     * Resolves with the relayUrl once its sessions are rebuilt.
-     */
     async relaysPut(relay) {
 
         this.assertRunning();
@@ -398,10 +295,6 @@ export class SmerpClient {
         });
     }
 
-    /**
-     * options: { relayUrl }
-     * Resolves with the number of relays removed (0 or 1).
-     */
     async relaysDelete({ relayUrl }) {
 
         this.assertRunning();
@@ -424,29 +317,13 @@ export class SmerpClient {
         });
     }
 
-    // =====================================================
-    // Internal
-    // =====================================================
-
-    /**
-     * Run write (a relay write) with the scheduler stopped, then rebuild
-     * sessions and scheduler (also when the write fails) and sync. Changes
-     * run one at a time, so two changes cannot interleave their stop and
-     * rebuild.
-     */
     changeRelays(write) {
 
         const run = this.relayChanges.then(async () => {
-
-            // Running steps finish and save first.
             await this.scheduler.stop();
 
-            // From here a late save (from a post) of an old session is ignored.
             this.sessions = new Map();
 
-            // Rebuild even if the write failed: the scheduler is stopped
-            // and the sessions cleared, so without it nothing would sync
-            // or send until the next relay change.
             try {
                 return await write();
             }
@@ -456,7 +333,6 @@ export class SmerpClient {
 
                 this.logger.info("relays changed", { relays: this.sessions.size });
 
-                // stop() may be waiting for this change.
                 if (this.status === ClientStatus.RUNNING) {
                     void this.sync();
                 }
@@ -468,7 +344,6 @@ export class SmerpClient {
         return run;
     }
 
-    // A session per enabled relay, all added to a new scheduler.
     async buildSessions() {
 
         this.scheduler = new Scheduler({
@@ -508,12 +383,6 @@ export class SmerpClient {
         this.sessions = sessions;
     }
 
-    /**
-     * Merge a session's state onto its stored relay record. Ignored for a
-     * session that is no longer current (replaced by a relay change) and
-     * for a relay that was deleted, so neither can write over the newer
-     * record or bring a deleted relay back.
-     */
     async saveRelayState(session, state) {
 
         if (this.sessions.get(session.relayUrl) !== session) {
@@ -534,7 +403,6 @@ export class SmerpClient {
             this.publish({ type: EventTypes.RELAY, relay, deleted: false });
         }
 
-        // A new failure is also reported as an error, for the UI's status line.
         if (relay.failureCount > (stored.failureCount ?? 0)) {
             this.publish({
                 type: EventTypes.ERROR,
@@ -570,7 +438,6 @@ function defaultContentType(plaintext) {
         : ContentTypes.UNKNOWN;
 }
 
-// The given fields of record that are set, as a new object.
 function pick(record, fields) {
 
     const picked = {};

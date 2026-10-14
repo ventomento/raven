@@ -1,23 +1,4 @@
 <!doctype html>
-<!--
-  webui demo. Serve the repo root over http (ES modules don't load from file://):
-
-    node smerp/src/server/run-server.js     mock relay on :8000
-    python3 -m http.server 8080             from the repo root
-
-  then open http://localhost:8080/webui/demo/
-
-  Keys are never stored: open a key file or generate a new identity on each
-  load. A key file is what the Identity view's Download saves: the private
-  key in hex on its first line. Message history is kept in IndexedDB per
-  identity, so opening the same key file again brings it back.
-
-  The mock relay below is seeded on start.
-
-  example add of relay (url, pubKeyHex)
-  http://localhost:8000
-  0xeb03b29ead5416dae89af429e77f649c3e9f8628cb032a12aa17a03e1d6bf249
--->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -82,7 +63,6 @@
 
     async function open(privateKeyHex) {
       try {
-        // ?debug in the URL logs the client's activity to the console.
         const debug = new URLSearchParams(location.search).has("debug");
         await new WebUi({ privateKeyHex, relays, debug }).start();
         document.head.querySelector("style").remove();
@@ -94,8 +74,6 @@
 
     const keyFile = document.getElementById("key-file");
 
-    // Say up front if this browser cannot run the app, rather than fail
-    // on the first click.
     browserSupport().then(support => {
       if (!support.ok) {
         errorLine.textContent = support.message;
@@ -110,10 +88,8 @@
       keyFile.click();
     });
 
-    // The private key is the first line of the file.
     keyFile.addEventListener("change", async () => {
       const [file] = keyFile.files;
-      // Cleared so choosing the same file again fires change again.
       keyFile.value = "";
       if (!file) {
         return;

@@ -1,492 +1,252 @@
-// ============================================================
-// MOCK SERVER FOR TESTING. DO NOT USE IN PRODUCTION.
-// ============================================================
+// ============================================================================
+//  MOCK RELAY: FOR DEVELOPMENT AND TESTS ONLY.
+//
+//  This server must NOT, under any circumstances, be used in production or
+//  exposed to a network. It exists so tests, the REPL and the web UI demo
+//  have a relay to talk to. Among other things it:
+//    - keeps every envelope in memory only (lost on restart, unbounded growth),
+//    - has no rate limits and never answers 429,
+//    - does not federate (smerp_rfc section 5) and never deletes envelopes,
+//    - serves GET /dump: every stored envelope's metadata, without auth,
+//    - compares access tokens without constant-time comparison.
+// ============================================================================
 
-// src/server/smerp-server.js
 import http from "node:http";
-import { URL } from "node:url";
-import { StorageServer } from "./storage-server.js";
 import { bytesToHex } from "../../../smep/src/encoding/hex.js";
 import { PrivateIdentity, readEnvelope, envelopeHash } from "../../../smep/src/index.js";
 import { RequestVerifier } from "../auth/request-signer.js";
-import {
-  SmerpHeaders,
-  MAX_ENVELOPE_BYTES,
-  MAX_BATCH_BYTES,
-  encodeBatch,
-} from "../protocol/index.js";
+import { SmerpHeaders, Status, MAX_ENVELOPE_BYTES, MAX_BATCH_BYTES, encodeBatch } from "../protocol/index.js";
+import { StorageServer } from "./storage-server.js";
+import { setCorsHeaders, send, readBody, parseCursorParam } from "./http-helpers.js";
+
+const NOT_FOUND = 404;
+const INTERNAL_ERROR = 500;
+
+const OCTET_STREAM = "application/octet-stream";
 
 export class SmerpServer {
 
-  // The relay keypair is generated on construction unless privateKeyHex
-  // is given. Clients learn its public key from the x-smerp-relay-pkh
-  // header sent on every response, so nothing has to be configured.
-  //
-  // Every request must be signed. tokens: a Set of access tokens; when
-  // given, every request must also carry one as a bearer token.
-  constructor({
-    storage = new StorageServer(),
-    privateKeyHex = null,
-    tokens = null,
-  } = {}) {
+    constructor({ storage = new StorageServer(), privateKeyHex = null, tokens = null } = {}) {
+        this.storage = storage;
+        this.tokens = tokens;
+        this.identityPromise = null;
+        this.verifierPromise = null;
 
-    this.storage = storage;
-    this.tokens = tokens;
+        this.useIdentity(
+            privateKeyHex === null
+                ? PrivateIdentity.generate()
+                : PrivateIdentity.fromPrivateKeyHex(privateKeyHex)
+        );
 
-    this.identityPromise = null;
-    this.verifierPromise = null;
+        this.routes = {
+            "GET /": this.handleRoot,
+            "GET /dump": this.handleDump,
+            "GET /envelopes": this.handleEnvelopesGet,
+            "POST /envelopes": this.handleEnvelopesPost,
+        };
 
-    this.#useIdentity(
-      privateKeyHex === null
-        ? PrivateIdentity.generate()
-        : PrivateIdentity.fromPrivateKeyHex(privateKeyHex)
-    );
+        this.server = http.createServer((req, res) => this.handleRequest(req, res));
 
-    this.server = http.createServer(
-      this.#handleRequest.bind(this)
-    );
+        Object.seal(this);
+    }
 
-    Object.seal(this);
-  }
+    listen(port, host = "127.0.0.1") {
+        return new Promise(resolve => this.server.listen(port, host, resolve));
+    }
 
-  // ============================================================
-  // PUBLIC API
-  // ============================================================
+    close() {
+        return new Promise((resolve, reject) => {
+            this.server.close(error => (error ? reject(error) : resolve()));
+        });
+    }
 
-  listen(port, host = "0.0.0.0") {
-    return new Promise((resolve) => {
-      this.server.listen(
-        port,
-        host,
-        resolve
-      );
-    });
-  }
+    async relayPkh() {
+        return (await this.identityPromise).publicKeyHex;
+    }
 
-  // Current relay public key hex, as sent in x-smerp-relay-pkh.
-  async relayPkh() {
-    return (await this.identityPromise).publicKeyHex;
-  }
+    rotateKey() {
+        this.useIdentity(PrivateIdentity.generate());
+        return this.relayPkh();
+    }
 
-  // Replace the relay keypair. Clients signing with the old key get a
-  // 401 carrying the new one and retry.
-  rotateKey() {
-    this.#useIdentity(PrivateIdentity.generate());
-    return this.relayPkh();
-  }
+    useIdentity(identityPromise) {
+        this.identityPromise = identityPromise;
+        this.verifierPromise = identityPromise.then(identity => new RequestVerifier({ identity }));
+    }
 
-  #useIdentity(identityPromise) {
-    this.identityPromise = identityPromise;
-    this.verifierPromise = identityPromise.then(
-      identity => new RequestVerifier({ identity })
-    );
-  }
+    async handleRequest(req, res) {
+        try {
+            // Every response carries the relay key (smerp_rfc section 1).
+            res.setHeader(SmerpHeaders.relayPkh, await this.relayPkh());
+            setCorsHeaders(res);
 
-  close() {
-    return new Promise((resolve, reject) => {
-      this.server.close((err) => {
-        if (err) {
-          reject(err);
-          return;
+            if (req.method === "OPTIONS") {
+                send(res, Status.NO_CONTENT);
+                return;
+            }
+
+            const url = new URL(req.url, "http://localhost");
+            const handler = this.routes[`${req.method} ${url.pathname}`];
+
+            if (handler === undefined) {
+                send(res, NOT_FOUND);
+                return;
+            }
+
+            await handler.call(this, req, res, url);
+
+        } catch (error) {
+            console.error(error);
+            send(res, INTERNAL_ERROR);
         }
-        resolve();
-      });
-    });
-  }
-  
-  // ============================================================
-  // AUTHENTICATION
-  // ============================================================
-
-  // Verifies the request signature, then the access token if this relay
-  // requires one. Returns { ok: true, pkh } or { ok: false, reason }.
-  async #authenticate(req, body) {
-
-    const verifier = await this.verifierPromise;
-
-    const result = await verifier.verify({
-      method: req.method,
-      target: req.url,
-      headers: req.headers,
-      body,
-    });
-
-    if (!result.ok) {
-      return result;
     }
 
-    if (!this.#hasValidToken(req)) {
-      return { ok: false, reason: "missing or invalid access token" };
+    handleRoot(req, res) {
+        send(res, Status.OK, {
+            headers: { "Content-Type": "text/plain" },
+            body: "Hello from smerp server, I am running!",
+        });
     }
 
-    return result;
-  }
-
-  #hasValidToken(req) {
-
-    if (this.tokens === null) {
-      return true;
-    }
-
-    const match = /^Bearer (.+)$/.exec(req.headers.authorization ?? "");
-
-    return match !== null && this.tokens.has(match[1]);
-  }
-
-  #unauthorized(res, reason) {
-    res.statusCode = 401;
-    res.setHeader(SmerpHeaders.unauthorized, reason);
-    res.end();
-  }
-
-  // ============================================================
-  // REQUEST ROUTER
-  // ============================================================
-
-  async #handleRequest(req, res) {
-
-    try {
-      // -------------------------------------------------
-      // Allow CORS from everywhere
-      // -------------------------------------------------
-
-      res.setHeader(SmerpHeaders.relayPkh, await this.relayPkh());
-
-      res.setHeader("Access-Control-Allow-Origin", "*");
-
-      res.setHeader(
-        "Access-Control-Allow-Methods",
-        "GET, POST, OPTIONS"
-      );
-
-      res.setHeader("Access-Control-Allow-Headers", [
-        "*",
-        "content-type",
-        "x-smerp-pkh",
-        "x-smerp-timestamp",
-        "x-smerp-signature",
-        "authorization",
-      ]);
-
-      res.setHeader("Access-Control-Expose-Headers", [
-        SmerpHeaders.cursor,
-        SmerpHeaders.unauthorized,
-        SmerpHeaders.relayPkh,
-      ]);
-
-      const url =
-        new URL(req.url, "http://localhost");
-
-      // allow options for cors success.
-      if (req.method === "OPTIONS") {
-        res.statusCode = 204;
-        res.end();
-        return;
-      }
-
-      // GET /
-      if (req.method === "GET" && url.pathname === "/") {
-          res.statusCode = 200;
-          res.setHeader("Content-Type", "text/plain");
-          res.end("Hello from smerp server, I am running!");
-          return;
-      }
-
-      // ========================================================
-      // GET /dump
-      // ========================================================
-
-      if (
-        req.method === "GET" &&
-        url.pathname === "/dump"
-      ) {
-
-        res.statusCode = 200;
-
-        res.setHeader(
-          "Content-Type",
-          "application/json"
+    handleDump(req, res) {
+        const records = this.storage.envelopesGet().map(({ id, hash, spkh, rpkh, bytes }) =>
+            ({ id, hash, spkh, rpkh, size: bytes.byteLength })
         );
 
-        res.end(
-          JSON.stringify(
-            this.storage.envelopesGet(),
-            null,
-            2
-          )
-        );
-
-        return;
-      }
-
-      // ========================================================
-      // POST /envelopes
-      // ========================================================
-
-      if (
-        req.method === "POST" &&
-        url.pathname === "/envelopes"
-      ) {
-        await this.#handleEnvelopesPost(
-          req,
-          res
-        );
-        return;
-      }
-
-      // ========================================================
-      // GET /envelopes
-      // ========================================================
-
-      if (
-        req.method === "GET" &&
-        url.pathname === "/envelopes"
-      ) {
-        await this.#handleEnvelopesGet(
-          req,
-          res,
-          url
-        );
-        return;
-      }
-
-      // ========================================================
-      // NOT FOUND
-      // ========================================================
-
-      res.statusCode = 404;
-      res.end();
-
-    } catch (err) {
-
-      console.error(err);
-
-      res.statusCode = 500;
-      res.end();
-    }
-  }
-
-  // ============================================================
-  // POST /envelopes
-  // ============================================================
-
-  async #handleEnvelopesPost(
-    req,
-    res
-  ) {
-
-    const contentType =
-      req.headers["content-type"];
-
-    if (
-      contentType !==
-      "application/octet-stream"
-    ) {
-      res.statusCode = 400;
-      res.end();
-      return;
+        send(res, Status.OK, {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(records, null, 2),
+        });
     }
 
-    // Refuse an oversized envelope before reading it.
-    if (Number(req.headers["content-length"]) > MAX_ENVELOPE_BYTES) {
-      res.statusCode = 400;
-      res.end();
-      req.resume();
-      return;
+    // POST /envelopes (smerp_rfc section 3).
+    async handleEnvelopesPost(req, res) {
+        if (req.headers["content-type"] !== OCTET_STREAM) {
+            send(res, Status.BAD_REQUEST);
+            return;
+        }
+
+        if (Number(req.headers["content-length"]) > MAX_ENVELOPE_BYTES) {
+            send(res, Status.BAD_REQUEST);
+            req.resume();
+            return;
+        }
+
+        const bytes = await readBody(req, MAX_ENVELOPE_BYTES);
+
+        if (bytes === null) {
+            send(res, Status.BAD_REQUEST);
+            return;
+        }
+
+        const auth = await this.authenticate(req, bytes);
+
+        if (!auth.ok) {
+            this.sendUnauthorized(res, auth.reason);
+            return;
+        }
+
+        let envelope;
+        try {
+            envelope = readEnvelope(bytes);
+        } catch {
+            send(res, Status.BAD_REQUEST);
+            return;
+        }
+
+        const spkh = bytesToHex(envelope.sender_public_key);
+        const rpkh = bytesToHex(envelope.recipient_public_key);
+
+        if (auth.pkh !== spkh && auth.pkh !== rpkh) {
+            this.sendUnauthorized(res, "signer is neither sender nor recipient");
+            return;
+        }
+
+        // An envelope already held is accepted too, and stored once.
+        this.storage.envelopesPut({ hash: await envelopeHash(bytes), spkh, rpkh, bytes });
+
+        send(res, Status.OK);
     }
 
-    const envelopeBuffer =
-      await this.#readRequestBody(req);
+    // GET /envelopes?cursor=N (smerp_rfc section 4). The mailbox is the signer's.
+    async handleEnvelopesGet(req, res, url) {
+        const auth = await this.authenticate(req);
 
-    const auth =
-      await this.#authenticate(req, envelopeBuffer);
+        if (!auth.ok) {
+            this.sendUnauthorized(res, auth.reason);
+            return;
+        }
 
-    if (!auth.ok) {
-      this.#unauthorized(res, auth.reason);
-      return;
+        const cursor = parseCursorParam(url.searchParams.get("cursor"));
+
+        if (cursor === null) {
+            send(res, Status.BAD_REQUEST);
+            return;
+        }
+
+        const batch = fillBatch(this.storage.envelopesGet({ pkh: auth.pkh, after: cursor }));
+
+        if (batch.length === 0) {
+            send(res, Status.NO_CONTENT);
+            return;
+        }
+
+        send(res, Status.OK, {
+            headers: {
+                "Content-Type": OCTET_STREAM,
+                [SmerpHeaders.cursor]: batch[batch.length - 1].id,
+            },
+            body: encodeBatch(batch.map(record => record.bytes)),
+        });
     }
 
-    let unpacked;
+    // Signature (auth_rfc section 9), then the token policy (section 8).
+    // Resolves { ok: true, pkh } or { ok: false, reason }.
+    async authenticate(req, body) {
+        const verifier = await this.verifierPromise;
+        const result = await verifier.verify({ method: req.method, target: req.url, headers: req.headers, body });
 
-    try {
+        if (!result.ok) {
+            return result;
+        }
 
-      unpacked =
-        readEnvelope(
-          envelopeBuffer
-        );
+        if (!this.hasValidToken(req)) {
+            return { ok: false, reason: "missing or invalid access token" };
+        }
 
-    } catch {
-
-      res.statusCode = 400;
-      res.end();
-      return;
+        return result;
     }
 
-    const hash =
-      await envelopeHash(envelopeBuffer);
+    hasValidToken(req) {
+        if (this.tokens === null) {
+            return true;
+        }
 
-    const spkh =
-      bytesToHex(
-        unpacked.sender_public_key
-      );
+        const match = /^Bearer (.+)$/.exec(req.headers.authorization ?? "");
 
-    const rpkh =
-      bytesToHex(
-        unpacked.recipient_public_key
-      );
-
-    // Mock policy: clients may upload envelopes they sent or received.
-    // A relay that federates would also accept its known peers here.
-    if (auth.pkh !== spkh && auth.pkh !== rpkh) {
-      this.#unauthorized(res, "signer is neither sender nor recipient");
-      return;
+        return match !== null && this.tokens.has(match[1]);
     }
 
-    const size = envelopeBuffer.byteLength;
-
-    try {
-
-      this.storage.envelopesPost({
-        hash,
-        spkh,
-        rpkh,
-        size,
-        eb: envelopeBuffer,
-      });
-
-    } catch (err) {
-
-      // An envelope already held (identical bytes) is a success.
-      if (
-        err.message ===
-        "duplicate envelope"
-      ) {
-        res.statusCode = 200;
-        res.end();
-        return;
-      }
-
-      throw err;
+    sendUnauthorized(res, reason) {
+        send(res, Status.UNAUTHORIZED, { headers: { [SmerpHeaders.unauthorized]: reason } });
     }
+}
 
-    res.statusCode = 200;
-    res.end();
-  }
-
-  // ============================================================
-  // GET /envelopes
-  // ============================================================
-
-  async #handleEnvelopesGet(
-    req,
-    res,
-    url
-  ) {
-
-    const auth =
-      await this.#authenticate(req);
-
-    if (!auth.ok) {
-      this.#unauthorized(res, auth.reason);
-      return;
-    }
-
-    // The mailbox is the signer's.
-    const pkh = auth.pkh;
-
-    const idRaw =
-      url.searchParams.get("cursor");
-
-    const id =
-      idRaw === null
-        ? 0
-        : Number(idRaw);
-
-    if (
-      !Number.isInteger(id)
-    ) {
-      res.statusCode = 400;
-      res.end();
-      return;
-    }
-
-    const records =
-      this.storage.envelopesGet({
-        pkh,
-        id,
-      });
-
-    // Pack as many envelopes as fit, always at least one.
+// The records from the start that fit in one batch: at most MAX_BATCH_BYTES of
+// envelopes, framing not counted, but always the first (smerp_rfc section 4).
+function fillBatch(records) {
     const batch = [];
     let size = 0;
 
     for (const record of records) {
+        size += record.bytes.byteLength;
 
-      const length = record.eb.byteLength;
+        if (batch.length > 0 && size > MAX_BATCH_BYTES) {
+            break;
+        }
 
-      if (batch.length > 0 && size + length > MAX_BATCH_BYTES) {
-        break;
-      }
-
-      batch.push(record);
-      size += length;
+        batch.push(record);
     }
 
-    if (batch.length === 0) {
-      res.statusCode = 204;
-      res.end();
-      return;
-    }
-
-    res.statusCode = 200;
-
-    res.setHeader(
-      "Content-Type",
-      "application/octet-stream"
-    );
-
-    res.setHeader(
-      SmerpHeaders.cursor, batch[batch.length - 1].id
-    );
-
-    res.end(
-      encodeBatch(batch.map(record => record.eb))
-    );
-  }
-
-  // ============================================================
-  // READ REQUEST BODY
-  // ============================================================
-
-  #readRequestBody(req) {
-
-    return new Promise(
-      (resolve, reject) => {
-
-        const chunks = [];
-
-        req.on("data", (chunk) => {
-          chunks.push(chunk);
-        });
-
-        req.on("end", () => {
-
-          const buffer =
-            Buffer.concat(chunks);
-
-          const arrayBuffer =
-            buffer.buffer.slice(
-              buffer.byteOffset,
-              buffer.byteOffset +
-              buffer.byteLength
-            );
-
-          resolve(arrayBuffer);
-        });
-
-        req.on("error", reject);
-      }
-    );
-  }
-
+    return batch;
 }

@@ -1,5 +1,3 @@
-// src/protocol/protocol.js
-
 import {
   exportPublicKeyBytes,
   deriveSharedSecret,
@@ -23,26 +21,14 @@ import { readEnvelope } from "../envelope/envelope-reader.js";
 import { ContentTypes } from "../envelope/content-types.js";
 import { insist } from "../util/util.js";
 
-// ============================================================
-// INTERNAL CRYPTO
-// ============================================================
-
-// Same key in both directions: either party can decrypt.
 async function deriveEnvelopeKey(privateKey, peerPublicKey) {
   const sharedSecret = await deriveSharedSecret(privateKey, peerPublicKey);
   return deriveAesKey(sharedSecret);
 }
 
-// ============================================================
-// ENVELOPE LAYER
-// ============================================================
-
 function encodePlaintext(
   plaintext
 ) {
-
-  // plaintext protocol data abstraction. = bytes or string.
-
   if (typeof plaintext == "string") {
     return encodeUtf8(plaintext);
   }
@@ -58,8 +44,6 @@ function encodePlaintext(
   throw new Error("Type Error");
 }
 
-// Returns the serialized envelope (ArrayBuffer). The header is written
-// first and authenticated as AAD, so none of its bytes can be altered.
 export async function createEnvelope({
   sender,
   recipient,
@@ -69,7 +53,6 @@ export async function createEnvelope({
 
   const plaintextBytes = encodePlaintext(plaintext);
 
-  // AES-GCM ciphertext is exactly as long as the plaintext.
   const writer = new EnvelopeWriter(EnvelopeWriter.size(plaintextBytes.length));
 
   const header = writer.writeHeader({
@@ -93,9 +76,6 @@ export async function createEnvelope({
   return writer.finish();
 }
 
-// The envelope's hash: hex SHA-256 of its complete bytes (smep_rfc section 6).
-// Computed, never carried in the envelope, so it cannot be claimed by a
-// different envelope. Takes an ArrayBuffer or Uint8Array.
 export async function envelopeHash(envelopeBytes) {
   const bytes = envelopeBytes instanceof ArrayBuffer
     ? new Uint8Array(envelopeBytes)
@@ -104,21 +84,15 @@ export async function envelopeHash(envelopeBytes) {
   return bytesToHex(await sha256(bytes));
 }
 
-// Takes an envelope from readEnvelope.
 export async function decryptEnvelope({
   identity,
   envelope,
 }) {
-
-  // Note: attempt to decrypt envelope if identity can, that is, is either sender or recipient.
-  // Meaning that this will decrypt both inbound and outgoing messages.
-
   const identityPublicHex = await identity.exportPublicHex();
 
   const envelopeSenderPublicHex = bytesToHex(envelope.sender_public_key);
   const envelopeRecipientPublicHex = bytesToHex(envelope.recipient_public_key);
 
-  // The peer is the other party. If identity is the sender, that is the recipient.
   const peerPublicHex =
     (identityPublicHex === envelopeSenderPublicHex)
       ? envelopeRecipientPublicHex
@@ -145,10 +119,6 @@ export async function decryptEnvelope({
     timestamp: Number(envelope.timestamp),
   });
 }
-
-// ============================================================
-// HIGH-LEVEL API
-// ============================================================
 
 export async function encrypt({
   sender,

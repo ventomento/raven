@@ -80,10 +80,13 @@ from reading the code.
   IndexedDB holds decrypted plaintext, readable by anyone with device access or
   script on the origin. Keys are created with `extractable: true`.
 
-- [ ] **10. Mock relay unsafe to expose.**
+- [x] **10. Mock relay unsafe to expose.**
   `GET /dump` serves every envelope without auth, `listen` defaults to `0.0.0.0`,
   and bodies without Content-Length have no size limit. Fine for tests; keep it
   off the network (default to `127.0.0.1`, drop or guard `/dump`, cap body size).
+  Done: `listen` defaults to `127.0.0.1`, POST bodies are capped while streaming,
+  and `smerp-server.js` states it is for development only. `/dump` is kept on
+  purpose (metadata only, no envelope bytes).
 
 - [ ] **11. Known design limits (already in the RFCs).**
   No forward secrecy; relays and the network see who talks to whom and when;

@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { Logger } from "../../src/log/logger.js";
 import { VirtualClock } from "../helpers/fakes.js";
 
-// A console stand-in that records [level, ...args] per call.
 function recordingSink() {
 
     const calls = [];
@@ -17,7 +16,6 @@ function recordingSink() {
     return sink;
 }
 
-// 2026-01-02T03:04:05.678Z
 const T = Date.UTC(2026, 0, 2, 3, 4, 5, 678);
 
 test("off by default: nothing reaches the sink", () => {

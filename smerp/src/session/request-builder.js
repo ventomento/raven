@@ -10,17 +10,6 @@ import {
     hmacKeyFor,
 } from "../auth/request-signer.js";
 
-/**
- * Builds the complete, signed requests of the smerp protocol to one relay,
- * in the shape transporter.transport() takes:
- *
- *   { url, options: { method, headers, body? }, timeout }
- *
- * Sends nothing. relayUrl, relayToken and identity are fixed; the relay
- * key is passed per request, since the session learns it from responses.
- * A request without a relay key is unsigned (first contact, auth_rfc
- * section 7).
- */
 export class RequestBuilder {
 
     static DEFAULTS = Object.freeze({
@@ -42,11 +31,9 @@ export class RequestBuilder {
         this.identity = identity;
         this.clock = clock;
 
-        // HMAC key for one relay key: { relayPkh, keyPromise }
         this.cachedKey = null;
     }
 
-    // GET /envelopes?cursor=<cursor> (smerp_rfc section 4)
     buildGet(cursor, relayPkh) {
 
         return this.build({
@@ -55,7 +42,6 @@ export class RequestBuilder {
         }, relayPkh);
     }
 
-    // POST /envelopes (smerp_rfc section 3)
     buildPost(envelopeBytes, relayPkh) {
 
         return this.build({
@@ -66,11 +52,6 @@ export class RequestBuilder {
         }, relayPkh);
     }
 
-    // =====================================================
-    // Internal
-    // =====================================================
-
-    // target is the path and query relative to relayUrl: what gets signed.
     async build({ method, target, body, headers = {} }, relayPkh) {
 
         const auth = relayPkh
@@ -92,7 +73,6 @@ export class RequestBuilder {
         };
     }
 
-    // x-smerp-pkh, x-smerp-timestamp, x-smerp-signature (auth_rfc section 5)
     async authHeaders({ method, target, body }, relayPkh) {
 
         const timestamp = Math.floor(this.clock.now() / 1000).toString();
@@ -113,7 +93,6 @@ export class RequestBuilder {
         };
     }
 
-    // Derived once per relay key; a new relay key (rotation) derives again.
     hmacKey(relayPkh) {
 
         if (this.cachedKey?.relayPkh !== relayPkh) {

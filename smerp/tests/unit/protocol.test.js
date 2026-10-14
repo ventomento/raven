@@ -16,10 +16,6 @@ import {
 const bytes = (...values) => new Uint8Array(values);
 const asArray = (buffer) => Array.from(new Uint8Array(buffer));
 
-// ============================================================
-// BATCH CODEC
-// ============================================================
-
 test("a batch round-trips, each frame as its own ArrayBuffer", () => {
 
     const body = encodeBatch([bytes(1, 2, 3), bytes(4).buffer, bytes()]);
@@ -82,10 +78,6 @@ test("decodeBatch rejects a body that is not bytes", () => {
     assert.throws(() => decodeBatch("text"), TypeError);
 });
 
-// ============================================================
-// CURSOR
-// ============================================================
-
 test("parseCursor accepts an integer above the requested cursor", () => {
 
     assert.equal(parseCursor("5", 0), 5);
@@ -111,10 +103,6 @@ test("encodeBatch rejects an envelope that is not bytes", () => {
 
     assert.throws(() => encodeBatch(["text"]), TypeError);
 });
-
-// ============================================================
-// CONSTANTS
-// ============================================================
 
 test("header names are lowercase, as Node and fetch report them", () => {
 

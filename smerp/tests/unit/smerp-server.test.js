@@ -3,11 +3,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 import { PrivateIdentity, PublicIdentity, encrypt } from "../../../smep/src/index.js";
-import { RequestSigner } from "../../src/auth/request-signer.js";
+import { RequestSigner } from "../helpers/request-signer.js";
 import { SmerpServer } from "../../src/server/index.js";
 import { decodeBatch, MAX_ENVELOPE_BYTES } from "../../src/protocol/index.js";
-
-// Wire behavior of the mock relay: batched GET and the envelope size limit.
 
 async function startServer(t) {
 
@@ -46,7 +44,6 @@ const seal = (sender, recipient, plaintext) => encrypt({
     plaintext,
 });
 
-// The envelope hash (smep_rfc section 6).
 const hashOf = (bytes) => createHash("sha256").update(new Uint8Array(bytes)).digest("hex");
 
 test("GET packs the signer's envelopes after the cursor into one batch", async (t) => {
@@ -59,7 +56,6 @@ test("GET packs the signer's envelopes after the cursor into one batch", async (
         const envelope = await seal(alice, bob, text);
         toBob.push(envelope);
         assert.equal((await post(alice, envelope)).status, 200);
-        // someone else's mail in between
         assert.equal((await post(alice, await seal(alice, carol, text))).status, 200);
     }
 
@@ -72,7 +68,6 @@ test("GET packs the signer's envelopes after the cursor into one batch", async (
     assert.equal(error, null);
     assert.deepEqual(frames.map(hashOf), toBob.map(hashOf));
 
-    // after the first envelope's id (1), the rest
     const rest = decodeBatch(await (await get(bob, 1)).arrayBuffer());
     assert.deepEqual(rest.frames.map(hashOf), toBob.slice(1).map(hashOf));
 
@@ -92,7 +87,6 @@ test("a batch holds at most 4 MiB of envelopes, but always one", async (t) => {
         assert.equal((await post(alice, envelope)).status, 200);
     }
 
-    // 3 MiB + 1.5 MiB would not fit, so the big one goes alone
     const first = await get(bob);
     assert.equal(first.headers.get("x-smerp-cursor"), "1");
     assert.deepEqual(decodeBatch(await first.arrayBuffer()).frames.map(hashOf), [hashOf(big)]);
@@ -124,8 +118,6 @@ test("an envelope posted first with a copied header does not displace the real o
     const { post, get } = await startServer(t);
     const [alice, bob] = await Promise.all([1, 2].map(() => PrivateIdentity.generate()));
 
-    // A squatter can copy every header byte of the real envelope, but not
-    // its bytes as a whole, so the relay holds both.
     const real = await seal(alice, bob, "the real one");
     const squat = new Uint8Array(real.slice(0));
     squat[squat.length - 1] ^= 0xff;
@@ -145,4 +137,60 @@ test("POST of a body over 4 MiB is refused with 400", async (t) => {
     const res = await post(alice, new Uint8Array(MAX_ENVELOPE_BYTES + 1));
 
     assert.equal(res.status, 400);
+});
+
+test("a chunked POST over 4 MiB is refused with 400 before it is read in full", async (t) => {
+
+    const { server } = await startServer(t);
+
+    // A stream body is sent chunked, so the relay cannot reject on Content-Length.
+    // It is unsigned: a relay that read it all would get to auth and answer 401.
+    const chunk = new Uint8Array(1024 * 1024);
+    const stream = new ReadableStream({
+        start(controller) {
+            for (let i = 0; i <= MAX_ENVELOPE_BYTES / chunk.byteLength; i++) {
+                controller.enqueue(chunk);
+            }
+            controller.close();
+        },
+    });
+
+    const res = await fetch(`http://127.0.0.1:${server.server.address().port}/envelopes`, {
+        method: "POST",
+        body: stream,
+        duplex: "half",
+        headers: { "content-type": "application/octet-stream" },
+    });
+
+    assert.equal(res.status, 400);
+});
+
+test("GET with a malformed cursor is refused with 400", async (t) => {
+
+    const { get } = await startServer(t);
+    const alice = await PrivateIdentity.generate();
+
+    for (const cursor of ["-1", "abc", "1e3", "0x10", ""]) {
+        assert.equal((await get(alice, cursor)).status, 400, `cursor "${cursor}"`);
+    }
+});
+
+test("GET /dump lists the stored envelopes", async (t) => {
+
+    const { server, post } = await startServer(t);
+    const [alice, bob] = await Promise.all([1, 2].map(() => PrivateIdentity.generate()));
+
+    const envelope = await seal(alice, bob, "dumped");
+    await post(alice, envelope);
+
+    const res = await fetch(`http://127.0.0.1:${server.server.address().port}/dump`);
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), [{
+        id: 1,
+        hash: hashOf(envelope),
+        spkh: alice.publicKeyHex,
+        rpkh: bob.publicKeyHex,
+        size: envelope.byteLength,
+    }]);
 });

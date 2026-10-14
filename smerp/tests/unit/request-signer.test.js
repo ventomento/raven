@@ -4,12 +4,12 @@ import assert from "node:assert/strict";
 import { PrivateIdentity } from "../../../smep/src/index.js";
 import {
     AuthHeaders,
-    RequestSigner,
     RequestVerifier,
     bodyHashHex,
     canonicalRequest,
     normalizePkh,
 } from "../../src/auth/request-signer.js";
+import { RequestSigner } from "../helpers/request-signer.js";
 
 const NOW = 1_750_201_234_000;
 const clockAt = (ms) => ({ now: () => ms });

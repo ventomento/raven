@@ -1,5 +1,3 @@
-// test/envelope.test.js
-
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -9,7 +7,6 @@ import { EnvelopeLayout } from "../src/envelope/layout.js";
 
 const { HEADER_SIZE, MAX_SIZE, SIZES } = EnvelopeLayout;
 
-// payload_size offset: 1 + 16 + 32 + 32 + 8 + 1 = 90
 const PAYLOAD_SIZE_OFFSET = 74;
 
 function randomBytes(length) {
@@ -51,10 +48,6 @@ function writeEnvelope(fields, body) {
 function newWriter(ciphertextLength = 64) {
   return new EnvelopeWriter(EnvelopeWriter.size(ciphertextLength));
 }
-
-// ============================================================
-// ROUNDTRIP
-// ============================================================
 
 test("write -> read roundtrip", () => {
   const fields = createHeaderFields();
@@ -105,10 +98,6 @@ test("read envelope is frozen", () => {
     envelope.version = 99;
   });
 });
-
-// ============================================================
-// WRITER
-// ============================================================
 
 test("writeHeader returns the header bytes of the final envelope", () => {
   const writer = newWriter(32);
@@ -208,10 +197,6 @@ test("rejects invalid content_type", () => {
   );
 });
 
-// ============================================================
-// READER
-// ============================================================
-
 test("rejects invalid version", () => {
   const buffer = writeEnvelope(createHeaderFields(), createBody());
 
@@ -249,10 +234,6 @@ test("rejects payload smaller than minimum", () => {
   assert.throws(() => readEnvelope(buffer), /payload_size too small/);
 });
 
-// ============================================================
-// SIZE LIMIT
-// ============================================================
-
 const MAX_CIPHERTEXT = MAX_SIZE - HEADER_SIZE - SIZES.MIN_PAYLOAD;
 
 test("an envelope of exactly the maximum size is written and read", () => {
@@ -268,7 +249,6 @@ test("size() and the constructor reject an envelope over the maximum", () => {
 });
 
 test("rejects an envelope over the maximum size", () => {
-  // Consistent header and length, just one byte too large.
   const buffer = new ArrayBuffer(MAX_SIZE + 1);
   const bytes = new Uint8Array(buffer);
 

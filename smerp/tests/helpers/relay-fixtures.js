@@ -1,6 +1,3 @@
-// Shared fixtures: real smep envelopes, the mock relay, and small doubles
-// for the sync modules.
-
 import {
     PrivateIdentity,
     PublicIdentity,
@@ -12,12 +9,6 @@ import { StorageMemory } from "../../src/storage/storage-memory.js";
 
 export const identity = () => PrivateIdentity.generate();
 
-/**
- * A real envelope from sender to recipient (PrivateIdentity or
- * PublicIdentity). Returns { bytes, buffer, hash }: bytes as encrypt gives
- * them, buffer as a frame from decodeBatch (its own ArrayBuffer), hash the
- * envelope hash (hex sha256, smep_rfc section 6).
- */
 export async function envelopeFor(sender, recipient, plaintext = "hi", options = {}) {
 
     const buffer = await encrypt({
@@ -34,13 +25,8 @@ export async function envelopeFor(sender, recipient, plaintext = "hi", options =
     };
 }
 
-// A frame that is not an envelope.
 export const garbageFrame = () => new Uint8Array([1, 2, 3, 4]).buffer;
 
-/**
- * The mock relay on an ephemeral port, closed after the test. Returns
- * { server, relay } with relay a record for relaysPut.
- */
 export async function startRelay(t, options, relayType = "archive") {
 
     const server = new SmerpServer(options);
@@ -56,7 +42,6 @@ export async function startRelay(t, options, relayType = "archive") {
     };
 }
 
-// A promise with its resolve and reject outside.
 export function deferred() {
 
     let resolve;
@@ -70,11 +55,6 @@ export function deferred() {
     return { promise, resolve, reject };
 }
 
-/**
- * A fake Scheduler session. Each step() call returns a new deferred,
- * logged in `steps` (in call order) and `log` (by name), and is settled
- * by the test. notBeforeAt is what notBefore() returns.
- */
 export class FakeSession {
 
     constructor(name, { notBeforeAt = 0 } = {}) {
@@ -93,17 +73,11 @@ export class FakeSession {
         return step.promise;
     }
 
-    // The deferred of the step in flight.
     get current() {
         return this.steps.at(-1);
     }
 }
 
-/**
- * A fake Scheduler session that answers every step from a script at once:
- * script is an array of booleans (more?) or Errors (reject), and once it
- * runs out, steps resolve false. Calls are appended to `log`.
- */
 export class ScriptedSession {
 
     constructor(name, script = [], log = []) {
@@ -131,11 +105,6 @@ export class ScriptedSession {
     }
 }
 
-/**
- * StorageMemory whose calls yield to the event loop first, so concurrent
- * callers interleave between reading and writing unless something
- * serializes them. failOn: { method: Error } throws from that method.
- */
 export class SlowStorage extends StorageMemory {
 
     constructor({ failOn = {} } = {}) {
@@ -164,9 +133,6 @@ for (const method of [
     };
 }
 
-// A logger that records what it is told.
-// The logger contract (log/logger.js). Entries are [level, message, fields];
-// a child records into the same entries with its fields merged.
 export class RecordingLogger {
 
     constructor({ entries = [], fields = {} } = {}) {

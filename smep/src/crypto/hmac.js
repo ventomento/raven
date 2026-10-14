@@ -1,9 +1,4 @@
-// src/crypto/hmac.js
-
 export async function hmacSha256(cryptoKey, data) {
-
-  // cryptoKey: sym hmac key.
-
   if(! (cryptoKey instanceof CryptoKey)) {
     throw new TypeError("Expected web crypto key");
   }
@@ -26,9 +21,6 @@ export async function verifyHmacSha256(
   data,
   signature
 ) {
-
-  // return: bool
-
   if (!(cryptoKey instanceof CryptoKey)) {
     throw new TypeError("Expected web crypto key");
   }

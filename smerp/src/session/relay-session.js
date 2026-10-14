@@ -10,28 +10,6 @@ import {
 } from "../protocol/index.js";
 import { RequestBuilder } from "./request-builder.js";
 
-/**
- * Talks to one relay: fetches its batches and keeps everything about that
- * relay (cursor, relay key, health, rate limit). Implements what the
- * Scheduler (sync/scheduler.js) needs: step() and notBefore().
- *
- * Config (relayUrl, relayToken) is fixed for the session's lifetime: on a
- * relay change the caller builds a new session from the stored record.
- * The token bucket lives here too, so it starts full with every session.
- *
- * A RequestBuilder builds each signed request, the transporter sends it,
- * the session interprets the response.
- *
- * Injected, beside the stored relay record:
- *
- *   identity      PrivateIdentity of this client; requests are signed with it
- *   transporter   { transport({ url, options, timeout }) → { status, headers, body } }
- *                 (transport/transport-interface.js)
- *   consume       (frames) → Promise. Handles a batch's envelopes (each an
- *                 ArrayBuffer). Throws only on a local fault (storage):
- *                 the cursor then stays and the relay is not blamed.
- *   save          (state) → Promise. Persists state() after each request.
- */
 export class RelaySession {
 
     static DEFAULTS = Object.freeze({
@@ -41,7 +19,6 @@ export class RelaySession {
         backoffMaxMs: 60 * 60 * 1000,
     });
 
-    // Wait after failureCount failures in a row: 30 s, 60 s, 2 min, ... 1 h.
     static backoffMs(failureCount) {
 
         const { backoffBaseMs, backoffMaxMs } = RelaySession.DEFAULTS;
@@ -73,9 +50,8 @@ export class RelaySession {
         this.logger = logger;
         this.clock = clock;
         this.bucket = new TokenBucket({ ratePerSecond, burst, clock });
-        this.pausedUntil = 0;   // a 429's Retry-After; in memory only
+        this.pausedUntil = 0;
 
-        // Config
         this.relayUrl = relay.relayUrl;
         this.requestBuilder = new RequestBuilder({
             relayUrl: relay.relayUrl,
@@ -84,7 +60,6 @@ export class RelaySession {
             clock,
         });
 
-        // State, persisted through save
         this.cursor = relay.cursor ?? 0;
         this.relayPkh = relay.relayPkh ?? null;
         this.failureCount = relay.failureCount ?? 0;
@@ -105,25 +80,11 @@ export class RelaySession {
         };
     }
 
-    // =====================================================
-    // Scheduler contract
-    // =====================================================
-
-    // Time of the next rate-limit token. Backoff and 429 pauses are not
-    // in here: step() declines while they last.
     notBefore() {
         return this.bucket.nextTokenAt();
     }
 
-    /**
-     * One GET /envelopes. Resolves true if there is more to fetch right
-     * away, false when caught up, failed or throttled. Rejects if consume
-     * or save throws; the cursor then stays where it was.
-     */
     async step() {
-
-        // Backing off after failures, or told to wait by a 429: no
-        // request; a later sync tries again.
         const now = this.clock.now();
 
         if (now < this.backoffUntil() || now < this.pausedUntil) {
@@ -131,8 +92,6 @@ export class RelaySession {
             return false;
         }
 
-        // The token went elsewhere since we were queued: no request, the
-        // scheduler waits for notBefore().
         if (!this.bucket.tryTake()) {
             return true;
         }
@@ -143,10 +102,6 @@ export class RelaySession {
 
         return more;
     }
-
-    // =====================================================
-    // GET /envelopes
-    // =====================================================
 
     async fetchBatch() {
 
@@ -176,9 +131,6 @@ export class RelaySession {
                 return false;
 
             case Status.UNAUTHORIZED:
-                // Unsigned, or signed with a key the relay no longer has:
-                // the response taught us its key. Not a failure; the next
-                // request is signed with it (auth_rfc section 7).
                 if (relayKeyChanged) {
                     this.recordSuccess();
                     return true;
@@ -196,9 +148,6 @@ export class RelaySession {
         }
     }
 
-    // A batch with a valid cursor always moves the cursor, even if its
-    // framing breaks partway: the frames before the break are consumed,
-    // so a broken batch cannot stall the mailbox (smerp_rfc section 4).
     async consumeBatch(response, requested) {
 
         let cursor;
@@ -213,7 +162,6 @@ export class RelaySession {
 
         const { frames, error } = decodeBody(response.body);
 
-        // Throws on a local fault: the cursor stays, nothing is recorded.
         await this.consume(frames);
 
         this.cursor = cursor;
@@ -229,17 +177,6 @@ export class RelaySession {
         return true;
     }
 
-    // =====================================================
-    // POST /envelopes
-    // =====================================================
-
-    /**
-     * Upload one envelope. Resolves on 200, throws otherwise. Used for
-     * sends, outside the scheduler: it takes no token, so a send is not
-     * held up by the sync budget, but it fails fast while the relay has
-     * asked us to wait (429). Health is not touched: one refused
-     * envelope says nothing about syncing.
-     */
     async post(envelopeBytes) {
 
         if (this.clock.now() < this.pausedUntil) {
@@ -264,8 +201,6 @@ export class RelaySession {
                 this.pauseForRetryAfter(response);
                 throw new Error(`Relay asked to wait: ${this.relayUrl}`);
 
-            // A 401 that taught a new key is not retried: the next post is
-            // signed with it.
             default: {
                 const reason = response.headers?.[SmerpHeaders.unauthorized];
                 throw new Error(
@@ -277,8 +212,6 @@ export class RelaySession {
         }
     }
 
-    // Retry-After in seconds; missing or unreadable waits 5 s. Holds back
-    // sync steps and posts alike.
     pauseForRetryAfter(response) {
 
         const seconds = Number(response.headers?.[SmerpHeaders.retryAfter]);
@@ -289,16 +222,6 @@ export class RelaySession {
         this.logger.info("paused by relay", { waitMs });
     }
 
-    // =====================================================
-    // Relay key
-    // =====================================================
-
-    // Adopt a valid x-smerp-relay-pkh; returns true if it differs from the
-    // known key. A missing or malformed one (e.g. a proxy's error page)
-    // keeps the known key. A changed key means the request was signed with
-    // another key, or unsigned. (A post adopting a key while a step is in
-    // flight can make that step miss it; the step then counts one failure
-    // and its next request is signed with the new key.)
     adoptRelayPkh(response) {
 
         const value = response.headers?.[SmerpHeaders.relayPkh];
@@ -321,10 +244,6 @@ export class RelaySession {
         return changed;
     }
 
-    // =====================================================
-    // Health
-    // =====================================================
-
     backoffUntil() {
 
         if (this.failureCount === 0) {
@@ -340,7 +259,6 @@ export class RelaySession {
         this.lastFailureReason = null;
     }
 
-    // The reason is shown to the user as lastFailureReason.
     recordFailure(reason) {
 
         this.failureCount += 1;
@@ -351,7 +269,6 @@ export class RelaySession {
     }
 }
 
-// A body that is not bytes is a batch with no readable frame.
 function decodeBody(body) {
 
     if (!(body instanceof Uint8Array || body instanceof ArrayBuffer)) {
@@ -361,7 +278,6 @@ function decodeBody(body) {
     return decodeBatch(body);
 }
 
-// The relay's reason is untrusted text, kept for display only.
 function unauthorizedReason(response) {
 
     const reason = response.headers?.[SmerpHeaders.unauthorized];

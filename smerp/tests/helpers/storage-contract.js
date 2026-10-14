@@ -1,7 +1,3 @@
-// Rules every storage must follow (storage/storage-interface.js):
-// envelope ordering and pagination, put/get/delete semantics, detached copies.
-// Run against a backend with: storageContract(test, () => new Storage()).
-
 import assert from "node:assert/strict";
 
 const envelope = (hash, sentAt, receivedAt, publicKeyHex = "conversationA") => ({
@@ -15,7 +11,6 @@ const envelope = (hash, sentAt, receivedAt, publicKeyHex = "conversationA") => (
     receivedAt,
 });
 
-// Two pairs share a sentAt second; receivedAt orders them.
 const FIXTURE = [
     envelope("a", 1000, 1500),
     envelope("b", 2000, 2100),
@@ -40,7 +35,6 @@ export function storageContract(test, makeStorage) {
 
         const storage = await fresh(t);
 
-        // insert out of order
         for (const e of [...FIXTURE].reverse()) {
             await storage.envelopesPut(e);
         }

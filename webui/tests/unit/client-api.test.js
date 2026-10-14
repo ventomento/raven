@@ -6,9 +6,6 @@ import { join } from "node:path";
 import { SmerpClient, PrivateIdentity } from "../../../index.js";
 import { FakeClient } from "../helpers/fake-client.js";
 
-// Guards against drift between the webui, its fake client and the real
-// SmerpClient: when the client API changes, these fail first.
-
 const SRC = new URL("../../src/", import.meta.url).pathname;
 
 async function sourceFiles(dir) {
@@ -30,7 +27,6 @@ async function sourceFiles(dir) {
     return files;
 }
 
-// What a real client offers: its methods and its own properties.
 async function clientMembers() {
 
     const client = new SmerpClient({ identity: await PrivateIdentity.generate() });

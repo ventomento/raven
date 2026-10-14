@@ -1,5 +1,3 @@
-// src/encoding/base64.js
-
 export function bytesToBase64(bytes) {
   if (!(bytes instanceof Uint8Array)) {
     throw new TypeError("Expected Uint8Array");

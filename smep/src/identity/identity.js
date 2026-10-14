@@ -1,5 +1,3 @@
-// src/identity/identity.js
-
 import {
   generateKeyPair,
   importPrivateKey,
@@ -72,10 +70,6 @@ export class PrivateIdentity {
     Object.freeze(this);
   }
 
-  // =========================================
-  // GENERATE NEW IDENTITY
-  // =========================================
-
   static async generate() {
 
     const pair =
@@ -89,10 +83,6 @@ export class PrivateIdentity {
       publicKeyHex
     });
   }
-
-  // =========================================
-  // LOAD IDENTITY FROM PRIVATE HEX
-  // =========================================
 
   static async fromPrivateKeyHex(
     privateKeyHex
@@ -117,20 +107,12 @@ export class PrivateIdentity {
     });
   }
 
-  // =========================================
-  // EXPORT PRIVATE SEED HEX
-  // =========================================
-
   async exportPrivateHex() {
 
     return exportPrivateKey(
       this.privateKey
     );
   }
-
-  // =========================================
-  // EXPORT PUBLIC ADDRESS HEX
-  // =========================================
 
   async exportPublicHex() {
 

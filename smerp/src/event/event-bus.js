@@ -1,21 +1,11 @@
-// event-bus.js
-
-// ======================================================
-// Event Types
-// ======================================================
-//
-// - event names describe facts that happened
-// - event payloads carry the data
-//
-
 export const EventTypes = Object.freeze({
-    ENVELOPE: "envelope",          // { envelope }                   envelope stored
-    CONVERSATION: "conversation",  // { conversation, created }      conversation stored
-    RELAY: "relay",                // { relay, deleted }             relay stored or deleted
-    SYNC: "sync",                  // { phase: "start" | "end" }
-    STATUS: "status",              // { status }                     client lifecycle changed
-    ERROR: "error",                // { error, relayUrl? }           background failure
-    REJECTED: "rejected",          // { relayUrl, hash, reason }     envelope skipped: malformed or undecryptable
+    ENVELOPE: "envelope",
+    CONVERSATION: "conversation",
+    RELAY: "relay",
+    SYNC: "sync",
+    STATUS: "status",
+    ERROR: "error",
+    REJECTED: "rejected",
 })
 
 export function isValidEventType(eventType) {
@@ -23,34 +13,14 @@ export function isValidEventType(eventType) {
         return false;
     }
 
-    // Check if the value exists in EventTypes
     return Object.values(EventTypes).includes(eventType);
 }
 
-
-// ======================================================
-// Event Bus
-// ======================================================
-//
-// Responsibilities:
-// - receive published events
-// - notify matching subscribers
-// - allow subscribe/unsubscribe
-//
-
 export class EventBus {
     constructor() {
-        // Map<eventType, Set<callback>>
         this.listeners = new Map()
     }
 
-
-    // --------------------------------------------------
-    // Subscribe
-    // --------------------------------------------------
-    //
-    // Returns unsubscribe function
-    //
     subscribe(eventType, callback) {
 
         if (!isValidEventType(eventType)) {
@@ -65,27 +35,15 @@ export class EventBus {
 
         callbacks.add(callback)
 
-        // unsubscribe function
         return () => {
             callbacks.delete(callback)
 
-            // cleanup empty sets
             if (callbacks.size === 0) {
                 this.listeners.delete(eventType)
             }
         }
     }
 
-
-    // --------------------------------------------------
-    // Publish Event
-    // --------------------------------------------------
-    //
-    // event = {
-    //     type: EventTypes.MESSAGE_CREATED,
-    //     add whatever key value pair needed - flat object structure,
-    // }
-    //
     publish(event) {
 
         const callbacks = this.listeners.get(event.type);

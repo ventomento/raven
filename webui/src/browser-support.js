@@ -1,8 +1,3 @@
-// webui/src/browser-support.js
-//
-// Whether this browser can run the web UI, with a message for the user
-// when it cannot. Feature tests only, no browser sniffing. DOM-free.
-
 import { cryptoSupport } from "../../smep/src/index.js";
 
 const PROBE_DATABASE = "smerp-support-probe";
@@ -27,8 +22,6 @@ const MESSAGES = Object.freeze({
     "a normal window, or allow site data for this page.",
 });
 
-// Thrown by WebUi.start() in a browser that cannot run it. The message is
-// meant for the user.
 export class UnsupportedBrowserError extends Error {
   constructor(reason) {
     super(MESSAGES[reason]);
@@ -37,18 +30,11 @@ export class UnsupportedBrowserError extends Error {
   }
 }
 
-/**
- * Resolves { ok: true } or { ok: false, reason, message }, reason one of
- * UnsupportedReasons. indexedDb: also check that IndexedDB opens (the
- * default storage). Never rejects.
- */
 export async function browserSupport({ indexedDb = true } = {}) {
 
   const crypto = await cryptoSupport();
 
   if (!crypto.ok) {
-    // Browsers hide crypto.subtle outside secure contexts (plain http
-    // other than localhost): that needs another fix than an update.
     return unsupported(globalThis.isSecureContext === false
       ? UnsupportedReasons.INSECURE_CONTEXT
       : UnsupportedReasons.NO_CRYPTO);
@@ -65,8 +51,6 @@ function unsupported(reason) {
   return { ok: false, reason, message: MESSAGES[reason] };
 }
 
-// Open and delete a throwaway database. Missing, throwing or failing all
-// mean storage is unavailable.
 function indexedDbOpens() {
 
   return new Promise(resolve => {

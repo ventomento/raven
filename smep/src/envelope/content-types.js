@@ -1,5 +1,3 @@
-// src/envelope/content-types.js
-
 export const ContentTypes = Object.freeze({
   TEXT_UTF8: 0x01,
   IMAGE: 0x02,

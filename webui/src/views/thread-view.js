@@ -1,5 +1,3 @@
-// webui/src/views/thread-view.js
-
 import { EventTypes, MAX_CONVERSATION_NAME } from "../../../index.js";
 import { h, replaceChildren } from "../dom.js";
 import { shortHex, peerLabel, formatTime } from "../format.js";
@@ -8,12 +6,6 @@ import { envelopeContent } from "../components/envelope-content.js";
 
 const PAGE_SIZE = 50;
 
-/**
- * One conversation: reply form on top, then messages newest first, with
- * older pages loaded on demand. Keeps the conversation marked read while
- * it is open. The header shows the conversation's name and renames it in
- * place.
- */
 export class ThreadView {
 
   constructor({ client, shell, publicKeyHex }) {
@@ -23,9 +15,9 @@ export class ThreadView {
     this.list = null;
     this.olderButton = null;
     this.head = null;
-    this.shown = new Set();   // envelope hashes in the list
-    this.oldest = null;       // last envelope of the last page loaded
-    this.conversation = null; // null until stored (a new thread has none yet)
+    this.shown = new Set();
+    this.oldest = null;
+    this.conversation = null;
     this.editing = false;
   }
 
@@ -86,7 +78,6 @@ export class ThreadView {
 
     const [conversation] = await this.client.conversationsGet({ publicKeyHex: this.publicKeyHex });
 
-    // An event may have delivered a newer one meanwhile.
     if (conversation && !this.conversation) {
       this.#showConversation(conversation);
     }
@@ -108,8 +99,6 @@ export class ThreadView {
       label.textContent = this.#messageAuthor();
     }
   }
-
-  // ---------------------------------------------- header
 
   #renderHead() {
 
@@ -135,7 +124,6 @@ export class ThreadView {
           h("span", { class: "mono" }, hex)
         );
 
-    // Only a stored conversation can be named.
     const rename = this.conversation && h("button", {
       class: "ghost",
       type: "button",
@@ -183,7 +171,6 @@ export class ThreadView {
           await this.client.renameConversation(this.publicKeyHex, input.value);
         }
         finally {
-          // The CONVERSATION event already brought the new name.
           this.#stopRename();
         }
       },
@@ -194,9 +181,6 @@ export class ThreadView {
     );
   }
 
-  // ---------------------------------------------- messages
-
-  // What inbound messages are labelled with: the peer's name, else "Peer".
   #messageAuthor() {
     return this.conversation?.name || "Peer";
   }
@@ -221,7 +205,6 @@ export class ThreadView {
       this.oldest = envelopes.at(-1);
     }
 
-    // Storage returns newest first, which is display order.
     for (const envelope of envelopes) {
       if (!this.shown.has(envelope.hash)) {
         this.shown.add(envelope.hash);

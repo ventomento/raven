@@ -21,18 +21,11 @@ export function openDatabase(databaseName) {
 
       const db = request.result;
 
-      // v1 held times in seconds under other names, v2 keyed envelopes by
-      // uuid. There is no data worth keeping, so start over rather than
-      // migrate.
       if (event.oldVersion < 3) {
         for (const name of [...db.objectStoreNames]) {
           db.deleteObjectStore(name);
         }
       }
-
-      //
-      // envelopes
-      //
 
       if (
         !db.objectStoreNames.contains(
@@ -48,7 +41,6 @@ export function openDatabase(databaseName) {
             }
           );
 
-        // receivedAt breaks ties between envelopes sent in the same second.
         store.createIndex(
           INDEXES.CONVERSATION_SENT_AT,
           [
@@ -61,10 +53,6 @@ export function openDatabase(databaseName) {
           }
         );
       }
-
-      //
-      // conversations
-      //
 
       if (
         !db.objectStoreNames.contains(
@@ -79,10 +67,6 @@ export function openDatabase(databaseName) {
           }
         );
       }
-
-      //
-      // relays
-      //
 
       if (
         !db.objectStoreNames.contains(

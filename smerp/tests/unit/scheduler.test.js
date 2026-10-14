@@ -5,9 +5,6 @@ import { Scheduler } from "../../src/sync/scheduler.js";
 import { VirtualClock, tick } from "../helpers/fakes.js";
 import { FakeSession, ScriptedSession } from "../helpers/relay-fixtures.js";
 
-// The scheduler against fake sessions: FakeSession steps are settled by
-// the test, ScriptedSession steps answer from a script at once.
-
 function setup(options = {}) {
 
     const clock = new VirtualClock();
@@ -22,7 +19,6 @@ function setup(options = {}) {
     return { clock, scheduler, errors };
 }
 
-// Whether promise has settled, after letting pending work run.
 async function isSettled(promise) {
 
     let settled = false;

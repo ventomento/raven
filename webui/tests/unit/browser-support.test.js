@@ -7,8 +7,6 @@ import {
     UnsupportedReasons,
 } from "../../src/browser-support.js";
 
-// Node has X25519 but no IndexedDB or isSecureContext: each test sets the
-// globals it needs and restores them afterwards.
 function withGlobal(t, name, value) {
 
     const original = Object.getOwnPropertyDescriptor(globalThis, name);
@@ -25,7 +23,6 @@ function withGlobal(t, name, value) {
     });
 }
 
-// An indexedDB whose open() answers with outcome: "success", "error" or "throw".
 function fakeIndexedDb(outcome) {
 
     const calls = [];

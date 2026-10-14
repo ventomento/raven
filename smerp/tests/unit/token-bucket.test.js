@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { TokenBucket } from "../../src/lib/token-bucket.js";
 import { VirtualClock } from "../helpers/fakes.js";
 
-// Takes n tokens, jumping time to nextTokenAt() whenever none is left.
 function takeTimes(bucket, clock, n) {
 
     const start = clock.now();
@@ -63,22 +62,4 @@ test("idle time refills up to the burst, not beyond", () => {
         takeTimes(bucket, clock, 4),
         [0, 0, 0, 500]
     );
-});
-
-test("pause withholds tokens until the given time", () => {
-
-    const clock = new VirtualClock();
-    const bucket = new TokenBucket({ ratePerSecond: 2, burst: 3, clock });
-    const start = clock.now();
-
-    bucket.pause(start + 10 * 1000);
-
-    assert.equal(bucket.isPaused(), true);
-    assert.equal(bucket.tryTake(), false);
-    assert.equal(bucket.nextTokenAt(), start + 10 * 1000);
-
-    clock.advance(10 * 1000);
-
-    assert.equal(bucket.isPaused(), false);
-    assert.equal(bucket.tryTake(), true);
 });

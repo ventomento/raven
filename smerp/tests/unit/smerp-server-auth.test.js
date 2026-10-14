@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { PrivateIdentity, PublicIdentity, encrypt } from "../../../smep/src/index.js";
-import { RequestSigner } from "../../src/auth/request-signer.js";
+import { RequestSigner } from "../helpers/request-signer.js";
 import { SmerpServer } from "../../src/server/index.js";
 
 async function startServer(t, options) {
@@ -17,7 +17,6 @@ async function startServer(t, options) {
     };
 }
 
-// Signed fetch to the mock relay as identity.
 async function signedFetch(server, base, identity, { method = "GET", target, body, headers = {} }) {
 
     const signer = new RequestSigner({ identity, relayPkh: await server.relayPkh() });
@@ -119,7 +118,6 @@ test("a POST signed by neither sender nor recipient is rejected", async (t) => {
     assert.equal(res.status, 401);
     assert.equal(res.headers.get("x-smerp-unauthorized"), "signer is neither sender nor recipient");
 
-    // the recipient may upload it, e.g. to back it up
     assert.equal((await post(server, base, bob, envelope)).status, 200);
 });
 

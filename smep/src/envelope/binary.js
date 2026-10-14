@@ -1,7 +1,3 @@
-// src/envelope/binary.js
-
-// Big-endian byte cursors over an ArrayBuffer. No envelope knowledge.
-
 export class BinaryReader {
   constructor(buffer) {
     if (!(buffer instanceof ArrayBuffer)) {
@@ -48,7 +44,6 @@ export class BinaryReader {
     return copy ? new Uint8Array(view) : view;
   }
 
-  // View of every byte read so far.
   consumed() {
     return new Uint8Array(this.buffer, 0, this.offset);
   }
@@ -100,7 +95,6 @@ export class BinaryWriter {
     this.offset += arr.length;
   }
 
-  // View of every byte written so far.
   written() {
     return new Uint8Array(this.buffer, 0, this.offset);
   }

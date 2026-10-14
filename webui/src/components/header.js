@@ -1,12 +1,6 @@
-// webui/src/components/header.js
-
 import { h } from "../dom.js";
 import { shortHex } from "../format.js";
 
-/**
- * Top bar: who we are, whether a sync is running, the last background
- * error, and a manual "Sync" button.
- */
 export class Header {
 
   constructor({ publicKeyHex, onSync }) {

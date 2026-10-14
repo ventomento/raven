@@ -1,5 +1,3 @@
-// src/crypto/hash.js
-
 export async function sha256(data) {
   if (!(data instanceof Uint8Array)) {
     throw new TypeError("Expected Uint8Array");

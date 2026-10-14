@@ -1,9 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-// The package's exports map, imported by self-reference as a consumer
-// would (playground/repl.js does the same).
-
 import * as root from "raven";
 import * as smep from "raven/smep";
 import * as smerp from "raven/smerp";
@@ -30,7 +27,7 @@ test("raven/smerp: the building blocks", () => {
         "encodeBatch", "decodeBatch", "parseCursor",
         "Scheduler", "RelaySession", "RequestBuilder", "Ingestor", "MAX_CONVERSATION_NAME",
         "ConcurrencyLimiter", "TokenBucket", "RealClock",
-        "AuthHeaders", "RequestSigner", "RequestVerifier",
+        "AuthHeaders", "RequestVerifier",
         "canonicalRequest", "bodyHashHex", "hmacKeyFor", "normalizePkh",
         "Logger",
     ]), []);
@@ -57,8 +54,6 @@ test("raven/testing: the mock relay, and only there", () => {
 });
 
 test("every entry point shares one copy of the identity classes", () => {
-
-    // insist checks with instanceof, so a second copy would break it
     assert.equal(root.PrivateIdentity, smep.PrivateIdentity);
     assert.equal(root.SmerpClient, smerp.SmerpClient);
     assert.equal(root.EventTypes, smerp.EventTypes);

@@ -1,8 +1,3 @@
-/**
- * insist - Lightweight runtime argument validator
- * @param {*} arg
- * @param {string|Function|null} type
- */
 export function insist(arg, type = null) {
 
   if (arg === undefined || arg === null) {
@@ -19,10 +14,6 @@ export function insist(arg, type = null) {
     return arg;
   }
 
-  // =========================================
-  // CLASS / CONSTRUCTOR CHECK
-  // =========================================
-
   if (typeof type === "function") {
 
     if (!(arg instanceof type)) {
@@ -33,10 +24,6 @@ export function insist(arg, type = null) {
 
     return arg;
   }
-
-  // =========================================
-  // STRING TYPE CHECK
-  // =========================================
 
   let isValid = false;
 

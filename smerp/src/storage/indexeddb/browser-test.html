@@ -110,10 +110,6 @@ function deepEqual(
 
   await storage.init();
 
-  //
-  // conversations
-  //
-
   await test(
     "conversationsPut returns primary key",
     async () => {
@@ -233,10 +229,6 @@ function deepEqual(
     }
   );
 
-  //
-  // relays
-  //
-
   await test(
     "relay roundtrip",
     async () => {
@@ -308,10 +300,6 @@ function deepEqual(
       );
     }
   );
-
-  //
-  // envelopes
-  //
 
   const envelopes = [
     {
@@ -531,10 +519,6 @@ function deepEqual(
     }
   );
 
-  //
-  // empty result semantics
-  //
-
   await test(
     "missing conversation returns []",
     async () => {
@@ -592,10 +576,6 @@ function deepEqual(
       );
     }
   );
-
-  //
-// Additional envelope query diagnostics
-//
 
 await test(
   "insert second conversation envelopes",

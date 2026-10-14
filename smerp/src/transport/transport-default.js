@@ -1,17 +1,7 @@
-// transport-default.js
-
 import { TransportInterface } from "./transport-interface.js";
 import { MAX_RESPONSE_BYTES } from "../protocol/index.js";
 
 export class TransportDefault extends TransportInterface {
-  /**
-   * @param {Object} params
-   * @param {string} params.url
-   * @param {RequestInit} [params.options]
-   * @param {number} [params.timeout=10000]  whole request, body included
-   * @param {number} [params.maxBytes=MAX_RESPONSE_BYTES]  largest body read
-   */
-
   static async transport({
     url,
     options = {},
@@ -26,9 +16,6 @@ export class TransportDefault extends TransportInterface {
     }, timeout);
 
     try {
-
-      // Never follow a redirect: it would carry the signed request and
-      // the relay token to wherever the relay points.
       const response = await fetch(url, {
         ...options,
         redirect: "error",
@@ -36,7 +23,6 @@ export class TransportDefault extends TransportInterface {
       });
 
       const status = response.status;
-      // Relay bodies are bytes (envelopes, batches) or empty.
       const body = await readBody(response, maxBytes, controller);
       const headers = Object.fromEntries(response.headers.entries());
 
@@ -59,8 +45,6 @@ export class TransportDefault extends TransportInterface {
   }
 }
 
-// Read the body as it arrives and give up past maxBytes, so a relay
-// cannot make us buffer more than any valid response holds.
 async function readBody(response, maxBytes, controller) {
 
   const tooLarge = () => {

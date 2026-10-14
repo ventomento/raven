@@ -1,17 +1,9 @@
-// webui/src/components/envelope-content.js
-
 import { ContentTypes } from "../../../index.js";
 import { decodeUtf8 } from "../../../smep/src/index.js";
 import { h, downloadBytes } from "../dom.js";
 import { formatBytes } from "../format.js";
 import { detectFileType } from "../file-type.js";
 
-/**
- * The body of one envelope: text for TEXT_UTF8, a download button for
- * anything else. The protocol carries no filename or MIME type, so the
- * extension is guessed from the file's leading bytes, and left off when
- * the format is not recognized.
- */
 export function envelopeContent(envelope) {
 
   const { plaintext, contentType, hash } = envelope;

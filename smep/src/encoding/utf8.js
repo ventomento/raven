@@ -1,5 +1,3 @@
-// src/encoding/utf8.js
-
 export function encodeUtf8(str) {
   
   if (typeof str !== "string") {

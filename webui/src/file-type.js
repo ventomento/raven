@@ -1,10 +1,3 @@
-// webui/src/file-type.js
-//
-// Guess a file's type from its leading bytes. Envelopes carry no filename
-// or MIME type, so this is how a received file gets an extension the OS
-// can open. Pure, so it is testable in Node.
-
-// Each signature: bytes that must appear at an offset. Strings are ASCII.
 const SIGNATURES = [
   { ext: "png", mime: "image/png", match: [[0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]]] },
   { ext: "jpg", mime: "image/jpeg", match: [[0, [0xff, 0xd8, 0xff]]] },
@@ -22,7 +15,6 @@ const SIGNATURES = [
   { ext: "7z", mime: "application/x-7z-compressed", match: [[0, [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]]] },
 ];
 
-/** { ext, mime } for a recognized format, null otherwise. */
 export function detectFileType(bytes) {
 
   for (const { ext, mime, match } of SIGNATURES) {

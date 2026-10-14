@@ -1,16 +1,6 @@
-// webui/src/views/identity-view.js
-
 import { h, replaceChildren, downloadBytes } from "../dom.js";
 
-/**
- * The client's own keys, and what the user needs to know about them. The
- * private key stays hidden until revealed; backing it up is the user's
- * job, so it can be downloaded as a text file. It has no copy button:
- * the clipboard is readable by other apps and kept in clipboard history.
- */
 export class IdentityView {
-
-  // identity: the PrivateIdentity, from WebUi; the client does not expose it.
   constructor({ client, identity }) {
     this.client = client;
     this.identity = identity;
@@ -82,8 +72,6 @@ export class IdentityView {
     );
   }
 
-  // Plain hex in a .txt file, so any client can read it back. Sent as
-  // octet-stream: some mobile browsers show text/plain instead of saving it.
   async downloadPrivateKey(publicKeyHex) {
 
     const privateKeyHex = await this.identity.exportPrivateHex();

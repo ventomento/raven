@@ -46,10 +46,6 @@ export class IndexedDbStorage
     this.db = null;
   }
 
-  //
-  // envelopes
-  //
-
   async envelopesGet(options = {}) {
 
     if (options.hash) {
@@ -64,7 +60,6 @@ export class IndexedDbStorage
       );
     }
 
-    // getAll returns primary key (hash) order; the contract is newest first.
     const envelopes = await this.#getAll(
       STORES.ENVELOPES
     );
@@ -81,10 +76,6 @@ export class IndexedDbStorage
 
     return record.hash;
   }
-
-  //
-  // conversations
-  //
 
   async conversationsGet(
     options = {}
@@ -116,10 +107,6 @@ export class IndexedDbStorage
 
     return record.publicKeyHex;
   }
-
-  //
-  // relays
-  //
 
   async relaysGet(
     options = {}
@@ -169,10 +156,6 @@ export class IndexedDbStorage
 
     return 1;
   }
-
-  //
-  // helpers
-  //
 
   async #delete(
     storeName,
@@ -337,319 +320,6 @@ export class IndexedDbStorage
       }
     );
   }
- /* 
-  async #getEnvelopesByConversation(
-  {
-    publicKeyHex,
-    beforeTimestamp,
-    limit,
-  }
-) {
-
-  console.log(
-    "=================================================="
-  );
-
-  console.log(
-    "#getEnvelopesByConversation()"
-  );
-
-  console.log(
-    "publicKeyHex:",
-    publicKeyHex
-  );
-
-  console.log(
-    "publicKeyHex JSON:",
-    JSON.stringify(
-      publicKeyHex
-    )
-  );
-
-  console.log(
-    "beforeTimestamp:",
-    beforeTimestamp
-  );
-
-  console.log(
-    "limit:",
-    limit
-  );
-
-  return new Promise(
-    (resolve, reject) => {
-
-      try {
-
-        const tx =
-          this.db.transaction(
-            STORES.ENVELOPES,
-            "readonly"
-          );
-
-        console.log(
-          "transaction created"
-        );
-
-        const store =
-          tx.objectStore(
-            STORES.ENVELOPES
-          );
-        
-        const storeDump =
-  store.openCursor();
-
-storeDump.onsuccess =
-  e => {
-
-    const cursor =
-      e.target.result;
-
-    if (!cursor) {
-
-      console.log(
-        "END STORE DUMP"
-      );
-
-      return;
-    }
-
-    console.log(
-      "STORE RECORD:",
-      cursor.value
-    );
-
-    cursor.continue();
-  };
-
-        console.log(
-          "store:",
-          store.name
-        );
-
-        console.log(
-          "available indexes:",
-          [
-            ...store.indexNames
-          ]
-        );
-
-        const index =
-          store.index(
-            "conversationTimestamp"
-          );
-
-        console.log(
-          "index acquired"
-        );
-
-        //
-        // Dump entire index
-        //
-
-        console.log(
-          "----- FULL INDEX DUMP -----"
-        );
-
-        const dumpRequest =
-          index.openCursor();
-
-        dumpRequest.onsuccess =
-          (event) => {
-
-            const cursor =
-              event.target.result;
-
-            if (!cursor) {
-
-              console.log(
-                "----- END INDEX DUMP -----"
-              );
-
-              return;
-            }
-
-            console.log(
-              "INDEX KEY:",
-              cursor.key
-            );
-
-            console.log(
-              "INDEX VALUE:",
-              cursor.value
-            );
-
-            cursor.continue();
-          };
-
-        dumpRequest.onerror =
-          () => {
-
-            console.error(
-              "INDEX DUMP ERROR",
-              dumpRequest.error
-            );
-          };
-
-        const results = [];
-
-        const upper =
-          beforeTimestamp ??
-          Number.MAX_SAFE_INTEGER;
-
-        console.log(
-          "upper:",
-          upper
-        );
-
-        const lowerBound = [
-          publicKeyHex,
-          -Infinity,
-        ];
-
-        const upperBound = [
-          publicKeyHex,
-          upper,
-        ];
-
-        console.log(
-          "lowerBound:",
-          lowerBound
-        );
-
-        console.log(
-          "upperBound:",
-          upperBound
-        );
-
-        const range =
-          IDBKeyRange.bound(
-            lowerBound,
-            upperBound,
-            false,
-            true
-          );
-
-        console.log(
-          "range created"
-        );
-
-        const request =
-          index.openCursor(
-            range,
-            "prev"
-          );
-
-        console.log(
-          "cursor opened"
-        );
-
-        request.onsuccess =
-          (event) => {
-
-            const cursor =
-              event.target.result;
-
-            if (!cursor) {
-
-              console.log(
-                "NO MORE CURSORS"
-              );
-
-              console.log(
-                "FINAL RESULTS:",
-                results
-              );
-
-              resolve(
-                structuredClone(
-                  results
-                )
-              );
-
-              return;
-            }
-
-            console.log(
-              "MATCHED KEY:",
-              cursor.key
-            );
-
-            console.log(
-              "MATCHED VALUE:",
-              cursor.value
-            );
-
-            results.push(
-              cursor.value
-            );
-
-            if (
-              limit &&
-              results.length >=
-                limit
-            ) {
-
-              console.log(
-                "LIMIT REACHED"
-              );
-
-              console.log(
-                "FINAL RESULTS:",
-                results
-              );
-
-              resolve(
-                structuredClone(
-                  results
-                )
-              );
-
-              return;
-            }
-
-            cursor.continue();
-          };
-
-        request.onerror =
-          () => {
-
-            console.error(
-              "QUERY ERROR:",
-              request.error
-            );
-
-            reject(
-              request.error
-            );
-          };
-
-        tx.onerror =
-          () => {
-
-            console.error(
-              "TRANSACTION ERROR:",
-              tx.error
-            );
-
-            reject(
-              tx.error
-            );
-          };
-
-      } catch (err) {
-
-        console.error(
-          "OUTER ERROR:",
-          err
-        );
-
-        reject(err);
-      }
-    }
-  );
-}
-*/
 
   async #getEnvelopesByConversation(
     {
@@ -681,10 +351,6 @@ storeDump.onsuccess =
 
         const results = [];
 
-        // Keys are [publicKeyHex, sentAt, receivedAt] and the upper bound
-        // is open. [publicKeyHex, beforeSentAt] sorts below every key with
-        // that sentAt (a shorter array is smaller), so they are excluded;
-        // with beforeReceivedAt only the pair itself and above are.
         const upperKey =
           beforeSentAt === undefined
             ? [publicKeyHex, Number.MAX_SAFE_INTEGER]

@@ -1,21 +1,12 @@
-// webui/src/views/relays-view.js
-
 import { EventTypes } from "../../../index.js";
 import { h, replaceChildren, perFrame } from "../dom.js";
 import { formatTime } from "../format.js";
 
-/**
- * Configured relays with their sync health, a toggle to disable one, a
- * delete button, an access token editor, a form to add a relay, and
- * what the user needs to know about relays.
- */
 export class RelaysView {
 
   constructor({ client }) {
     this.client = client;
     this.list = null;
-    // relayUrl -> token editor. Reused across renders so a sync event
-    // does not wipe what the user is typing.
     this.tokenEditors = new Map();
     this.scheduleRender = perFrame(() => void this.#render());
   }
@@ -94,7 +85,6 @@ export class RelaysView {
           : `Last sync ${formatTime(relay.lastSuccessAt)}` +
             (failing ? ` · ${relay.failureCount} failure${relay.failureCount > 1 ? "s" : ""} in a row` : "")
       ),
-      // May quote the relay: rendered as text only.
       failing && relay.lastFailureReason
         ? h("div", { class: "small warn" }, relay.lastFailureReason)
         : null,
@@ -114,7 +104,6 @@ export class RelaysView {
     );
   }
 
-  // Collapsible password field to set, change or clear the token.
   #tokenEditor(relay) {
 
     const existing = this.tokenEditors.get(relay.relayUrl);
@@ -209,7 +198,6 @@ function tokenInput(placeholder = "Access token") {
   return h("input", { type: "password", placeholder, autocomplete: "off" });
 }
 
-// Never show a token in full.
 function maskToken(token) {
   return `••••${token.slice(-4)}`;
 }

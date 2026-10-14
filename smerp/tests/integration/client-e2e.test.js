@@ -12,13 +12,8 @@ import { StorageMemory } from "../../src/storage/storage-memory.js";
 import { TransportDefault } from "../../src/transport/transport-default.js";
 import { startRelay } from "../helpers/relay-fixtures.js";
 
-// SmerpClients end to end against the mock relay on ephemeral ports, real
-// clock and HTTP. Cleanup is registered with t.after so a failed
-// assertion does not leave a server or client running.
-
 const HOUR = 60 * 60 * 1000;
 
-// A transporter that logs every request it passes on.
 function countingTransport() {
 
     const requests = [];
@@ -76,7 +71,6 @@ test("text and bytes round-trip between two clients through a relay", async (t) 
     assert.deepEqual(sent.failed, []);
     assert.match(sent.hash, /^[0-9a-f]{64}$/);
 
-    // the sender stores its own envelope only via sync, like any other
     await alice.sync();
     const [own] = await alice.envelopesGet({ hash: sent.hash });
     assert.equal(own.direction, "outbound");
@@ -103,7 +97,6 @@ test("text and bytes round-trip between two clients through a relay", async (t) 
 
     assert.equal((await bob.envelopesGet({ publicKeyHex: alice.publicKeyHex })).length, 2);
 
-    // repeated syncs do not store anything twice
     await alice.sync();
     await alice.sync();
     assert.equal((await alice.envelopesGet({ publicKeyHex: bob.publicKeyHex })).length, 2);
@@ -125,7 +118,6 @@ test("many small envelopes are fetched with one request", async (t) => {
     await bob.sync();
 
     assert.equal((await bob.envelopesGet()).length, 30);
-    // first contact (unsigned 401 teaches the key), the whole batch, then 204
     assert.equal(transporter.gets().length, 3);
     assert.equal((await bob.relaysGet())[0].cursor, 30);
 });
@@ -136,7 +128,6 @@ test("a 4 MiB envelope round-trips, one byte more is refused by send", async (t)
     const alice = await startClient(t, relay);
     const bob = await startClient(t, relay);
 
-    // 4 MiB minus header (78), iv (12) and tag (16)
     const largest = new Uint8Array(4 * 1024 * 1024 - 106).fill(7);
 
     const sent = await alice.send(bob.publicKeyHex, largest, { contentType: ContentTypes.FILE });
@@ -166,13 +157,11 @@ test("the client learns the relay key and recovers when the relay rotates it", a
 
     const rotated = await server.rotateKey();
 
-    // a sync learns the new key without counting a failure...
     await bob.sync();
     [stored] = await bob.relaysGet();
     assert.equal(stored.relayPkh, rotated);
     assert.equal(stored.failureCount, 0);
 
-    // ...and a send to a relay with a key it has not learned yet asks to send again
     const error = await alice.send(bob.publicKeyHex, "after rotation").catch(e => e);
     assert.ok(error instanceof DispatchError);
     assert.match(error.failed[0].error.message, /relay key learned, send again/);
@@ -227,7 +216,6 @@ test("unread counts follow inbound envelopes and markRead clears them", async (t
     await bob.sync();
     assert.equal((await bob.conversationsGet({ publicKeyHex: alice.publicKeyHex }))[0].unreadCount, 1);
 
-    // sender side: outbound messages are not unread
     await alice.sync();
     const [aliceSide] = await alice.conversationsGet({ publicKeyHex: bob.publicKeyHex });
     assert.equal(aliceSide.unreadCount, 0);
@@ -331,7 +319,6 @@ test("a dead relay does not stop sends or syncs through a live one", async (t) =
     assert.equal(deadRecord.failureCount, 1);
     assert.ok(errors.some(e => e.relayUrl === dead.relayUrl));
 
-    // backing off: the next sync leaves the dead relay alone and still delivers
     const deadRequests = transporter.gets(dead.relayUrl).length;
     await bob.sync();
 

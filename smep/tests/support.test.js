@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 
 import { cryptoSupport } from "../src/index.js";
 
-// Replaces globalThis.crypto for one test.
 function withCrypto(t, value) {
 
   const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");

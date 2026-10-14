@@ -25,16 +25,6 @@ test('exported X25519 private key material is clamped', async () => {
     await crypto.subtle.exportKey('pkcs8', privateKey)
   );
 
-  // RFC 8410 PKCS#8 structure:
-  //
-  // 30 2e
-  //   02 01 00
-  //   30 05
-  //     06 03 2b 65 6e
-  //   04 22
-  //     04 20
-  //       <32 bytes private key material>
-  //
   const privateBytes = pkcs8.slice(-32);
 
   console.log('PKCS8 length:', pkcs8.length);

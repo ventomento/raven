@@ -13,8 +13,6 @@ import {
     RecordingLogger,
 } from "../helpers/relay-fixtures.js";
 
-// Ingestion of real smep envelopes as bob.
-
 const RELAY_URL = "http://relay.test";
 
 async function setup({ storage = new StorageMemory() } = {}) {
@@ -192,7 +190,6 @@ test("dedup comes before decryption", async () => {
 
     const { bob, alice, carol, storage, ingestor, events } = await setup();
 
-    // Bob cannot decrypt this, but its hash is already stored.
     const notForBob = await envelopeFor(alice, carol);
     await storage.envelopesPut({ hash: notForBob.hash });
 
@@ -205,12 +202,10 @@ test("a squatter's envelope copying a header cannot get the real one skipped", a
 
     const { bob, alice, ingestor, storage, of } = await setup();
 
-    // A squatter can copy every header byte, but not the bytes as a whole,
-    // so its envelope has a different hash and cannot block the real one.
     const real = await envelopeFor(alice, bob, "the real one");
 
     const forged = new Uint8Array(real.bytes);
-    forged[forged.length - 1] ^= 0xff;   // same header, broken tag
+    forged[forged.length - 1] ^= 0xff;
 
     await ingestor.ingest([forged.buffer, real.buffer]);
 
@@ -260,10 +255,6 @@ test("a storage error rejects the ingest, and later ingests still run", async ()
     assert.equal((await storage.envelopesGet()).length, 1);
 });
 
-// ============================================================
-// One at a time
-// ============================================================
-
 test("the same envelope ingested by two relays at once is stored and counted once", async () => {
 
     const { bob, alice, storage, ingestor, of } = await setup({ storage: new SlowStorage() });
@@ -291,10 +282,6 @@ test("concurrent batches into one conversation lose no unread increment", async 
 
     assert.equal((await storage.conversationsGet())[0].unreadCount, 4);
 });
-
-// ============================================================
-// markRead
-// ============================================================
 
 test("markRead resets unread, announces the conversation and returns it", async () => {
 
@@ -337,10 +324,6 @@ test("markRead waits for the ingests before it, and the ones after it count", as
     assert.equal((await read).unreadCount, 0);
     assert.equal((await storage.conversationsGet())[0].unreadCount, 1);
 });
-
-// ============================================================
-// rename
-// ============================================================
 
 test("rename sets the name, announces the conversation and returns it", async () => {
 

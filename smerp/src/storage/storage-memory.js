@@ -1,7 +1,3 @@
-// src/storage/storage-memory.js
-
-// In-memory storage. Data is lost when the process exits.
-
 import {
   StorageInterface,
   newestFirst,
@@ -29,10 +25,6 @@ export class StorageMemory
 
   async close() {}
 
-  // =========================================================
-  // ENVELOPES
-  // =========================================================
-
   async envelopesPut(record) {
 
     this.envelopes.set(
@@ -44,8 +36,6 @@ export class StorageMemory
   }
 
   async envelopesGet(options = {}) {
-
-    // Primary key lookup. Ingest dedups every envelope through this.
     if (options.hash) {
 
       const record =
@@ -60,10 +50,6 @@ export class StorageMemory
       Array.from(
         this.envelopes.values()
       );
-
-    // =====================================================
-    // FILTERS
-    // =====================================================
 
     if (options.publicKeyHex) {
 
@@ -83,15 +69,7 @@ export class StorageMemory
         );
     }
 
-    // =====================================================
-    // SORT (newest first)
-    // =====================================================
-
     results.sort(newestFirst);
-
-    // =====================================================
-    // LIMIT
-    // =====================================================
 
     if (options.limit) {
 
@@ -104,10 +82,6 @@ export class StorageMemory
 
     return structuredClone(results);
   }
-
-  // =========================================================
-  // CONVERSATIONS
-  // =========================================================
 
   async conversationsPut(record) {
 
@@ -138,10 +112,6 @@ export class StorageMemory
 
     return structuredClone(results);
   }
-
-  // =========================================================
-  // RELAYS
-  // =========================================================
 
   async relaysPut(record) {
 

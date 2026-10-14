@@ -1,14 +1,7 @@
-// webui/src/views/conversations-view.js
-
 import { EventTypes } from "../../../index.js";
 import { h, replaceChildren, perFrame } from "../dom.js";
 import { shortHex, peerLabel, formatTime } from "../format.js";
 
-/**
- * Conversations, most recent first, with an unread badge per row. A
- * named conversation shows its name above the key.
- * Picking one opens its thread.
- */
 export class ConversationsView {
 
   constructor({ client, shell }) {

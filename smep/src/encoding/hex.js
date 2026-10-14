@@ -1,5 +1,3 @@
-// src/encoding/hex.js
-
 export function hexToBytes(hex) {
   if (typeof hex !== "string") {
     throw new TypeError("Expected hex string");

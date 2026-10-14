@@ -1,7 +1,5 @@
 import { sha256 } from "./hash.js";
 
-// legacy naming: deriveAesKey
-
 export async function deriveAesKey(sharedSecret) {
 
   if (!(sharedSecret instanceof Uint8Array)) {

@@ -1,115 +1,52 @@
-// src/server/storage-server.js
+import { insist } from "../../../smep/src/util/util.js";
 
+// In-memory, append-only envelope store for the mock relay (smerp-server.js).
+// It never deletes, so the mock behaves like an "archive" relay (smerp_rfc
+// section 2). An envelope is held only if its hash (sha256 of the complete
+// bytes) is, never because a header field matches (smerp_rfc section 5).
+// Record ids start at 1 and serve as the download cursor.
 export class StorageServer {
 
-  constructor() {
-
-    // ordered append-only record store
-    this.records = [];
-
-    // monotonically increasing integer id
-    this.nextId = 1;
-
-    // envelope hash uniqueness index
-    this.hashIndex = Object.create(null);
-
-    // ============================================================
-    // INTENTS
-    // ============================================================
-    this.intents = Object.create(null);
-
-    Object.seal(this);
-  }
-
-  // ============================================================
-  // STORE ENVELOPE
-  // ============================================================
-
-  envelopesPost({
-    hash, // envelope hash: hex sha256 of the envelope bytes
-    spkh, //senderPublicKeyhex
-    rpkh, //recipientPublicKeyHex
-    eb, //envelopeBytes
-  }) {
-
-    // ------------------------------------------------------------
-    // validation
-    // ------------------------------------------------------------
-
-    if (typeof hash !== "string") {
-      throw new Error(
-        "hash must be string"
-      );
+    constructor() {
+        this.records = [];
+        this.idsByHash = new Map();
+        this.nextId = 1;
+        Object.seal(this);
     }
 
-    if (typeof spkh !== "string") {
-      throw new Error(
-        "spkh must be string"
-      );
+    has(hash) {
+        return this.idsByHash.has(hash);
     }
 
-    if (typeof rpkh !== "string") {
-      throw new Error(
-        "rpkh must be string"
-      );
+    // Stores the envelope and returns its record. An envelope already held
+    // is not stored again; its existing record is returned.
+    envelopesPut({ hash, spkh, rpkh, bytes }) {
+        insist(hash, "string");
+        insist(spkh, "string");
+        insist(rpkh, "string");
+        insist(bytes, ArrayBuffer);
+
+        if (this.has(hash)) {
+            return this.records[this.idsByHash.get(hash) - 1];
+        }
+
+        const record = Object.freeze({ id: this.nextId++, hash, spkh, rpkh, bytes });
+
+        this.records.push(record);
+        this.idsByHash.set(hash, record.id);
+
+        return record;
     }
 
-    if (!(eb instanceof ArrayBuffer)) {
-      throw new Error(
-        "envelopeBytes must be Uint8Array"
-      );
+    // Records after `after` (a record id) sent by or to `pkh`, in id order.
+    // Without a pkh, every record.
+    envelopesGet({ pkh = null, after = 0 } = {}) {
+        if (pkh === null) {
+            return [...this.records];
+        }
+
+        return this.records.filter(record =>
+            record.id > after && (record.spkh === pkh || record.rpkh === pkh)
+        );
     }
-
-    // ------------------------------------------------------------
-    // enforce hash uniqueness
-    // ------------------------------------------------------------
-
-    if (this.hashIndex[hash]) {
-      throw new Error(
-        "duplicate envelope"
-      );
-    }
-
-    // ------------------------------------------------------------
-    // create immutable record
-    // ------------------------------------------------------------
-
-    const record = Object.freeze({
-      id: this.nextId++,
-      hash,
-      spkh,
-      rpkh,
-      eb,
-    });
-
-    // ------------------------------------------------------------
-    // store
-    // ------------------------------------------------------------
-
-    this.records.push(record);
-    this.hashIndex[hash] = record.id;
-
-    return record;
-  }
-
-  // ============================================================
-  // QUERY ENVELOPES
-  // ============================================================
-
-  // Records of mailbox pkh after id, in id order. Without pkh, every
-  // record.
-  envelopesGet(options = {}) {
-    const { pkh = null, id = 0 } = options;
-
-    if (!pkh) {
-      return this.records;
-    }
-
-    // records is append-only, so already in id order.
-    return this.records.filter((record) =>
-      record.id > id &&
-      (record.spkh === pkh || record.rpkh === pkh)
-    );
-  }
-
 }

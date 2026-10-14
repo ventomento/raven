@@ -1,13 +1,5 @@
-// webui/src/components/tab-bar.js
-
 import { h } from "../dom.js";
 
-/**
- * Horizontal tab bar with an optional count badge per tab.
- *
- * tabs: [{ id, label }]
- * onSelect(id): called when the user picks a tab.
- */
 export class TabBar {
 
   constructor({ tabs, onSelect }) {

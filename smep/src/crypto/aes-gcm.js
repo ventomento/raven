@@ -1,11 +1,3 @@
-// src/crypto/aes-gcm.js
-
-// Ciphertext and tag travel together as ciphertext || tag (16-byte tag),
-// the layout WebCrypto produces and the SMEP envelope stores.
-//
-// aad (additional authenticated data) is authenticated by the tag but not
-// encrypted. Decryption fails unless it gets the same aad as encryption.
-
 const TAG_LENGTH = 16;
 
 function checkParams(iv, aad) {

@@ -8,7 +8,6 @@ import {
     NotStartedError,
     DispatchError,
     ContentTypes,
-    PrivateIdentity,
 } from "../../../index.js";
 import { readEnvelope, bytesToHex, envelopeHash } from "../../../smep/src/index.js";
 import { StorageMemory } from "../../src/storage/storage-memory.js";
@@ -16,10 +15,6 @@ import { VirtualClock, FakeRelays, tick } from "../helpers/fakes.js";
 import { Scheduler } from "../../src/sync/scheduler.js";
 import { encodeBatch } from "../../src/protocol/index.js";
 import { identity, envelopeFor, garbageFrame, deferred } from "../helpers/relay-fixtures.js";
-
-// SmerpClient's own wiring, with FakeRelays as transport and virtual
-// time. The modules it wires have their own unit tests; end to end
-// against the mock relay is in ../integration.
 
 const A = "http://a.test";
 const B = "http://b.test";
@@ -51,7 +46,6 @@ async function startFakeClient(t, { relayUrls = [], storage = new StorageMemory(
     await client.start();
     t.after(() => client.stop());
 
-    // Lets steps wait for tokens in virtual time.
     const sync = () => clock.drive(client.sync());
 
     await sync();
@@ -68,7 +62,6 @@ const posts = (relays, relayUrl) =>
 const gets = (relays, relayUrl) =>
     relays.requests.filter(r => r.method === "GET" && (!relayUrl || r.relayUrl === relayUrl));
 
-// Whether promise has settled, after letting pending work run.
 async function isSettled(promise) {
 
     let settled = false;
@@ -80,10 +73,6 @@ async function isSettled(promise) {
 
     return settled;
 }
-
-// ============================================================
-// Lifecycle
-// ============================================================
 
 test("every method but on needs a running client", async () => {
 
@@ -156,7 +145,6 @@ test("a failing start closes storage, leaves the client stopped and rethrows", a
         assert.equal(closed, 1, method);
         assert.equal(client.syncIntervalId, null, "no interval left behind");
 
-        // and it can be started once storage works
         delete storage[method];
         await client.start();
         assert.equal(client.status, ClientStatus.RUNNING);
@@ -212,10 +200,6 @@ test("the sync interval starts a sync until stop", async (t) => {
     await tick();
     assert.equal(gets(relays, A).length, before + 1);
 });
-
-// ============================================================
-// Sync
-// ============================================================
 
 test("overlapping syncs share one promise and one SYNC start/end", async (t) => {
 
@@ -321,7 +305,6 @@ test("a relay failure is saved, announced as RELAY and ERROR once, then backed o
     assert.match(error.error.message, /unexpected status 500/);
     assert.equal(of(EventTypes.RELAY).length, relayEvents + 1);
 
-    // backing off: no request, nothing new to report
     const requests = gets(relays, A).length;
     await client.sync();
     await tick();
@@ -371,10 +354,6 @@ test("a save that only moves lastSuccessAt is not announced", async (t) => {
     assert.ok(after.lastSuccessAt > before.lastSuccessAt, "saved");
     assert.equal(of(EventTypes.RELAY).length, relayEvents, "not announced");
 });
-
-// ============================================================
-// Send
-// ============================================================
 
 test("send: argument checks", async (t) => {
 
@@ -476,7 +455,6 @@ test("send: stores nothing itself; the envelope arrives through sync", async (t)
     const sent = await client.send(bob.publicKeyHex, "hi");
     await sync();
 
-    // FakeRelays does not serve what was posted
     assert.deepEqual(await client.envelopesGet(), []);
 
     relays.add(A, new Uint8Array(posts(relays, A)[0].body));
@@ -522,10 +500,6 @@ test("send: does not wait for a sync in progress", async (t) => {
     gate.resolve();
     await syncing;
 });
-
-// ============================================================
-// Envelopes and conversations
-// ============================================================
 
 test("conversationsGet: newest lastMessageAt first", async (t) => {
 
@@ -597,10 +571,6 @@ test("renameConversation names the conversation and announces it", async (t) => 
     assert.deepEqual(of(EventTypes.CONVERSATION).at(-1).conversation, conversation);
     assert.equal((await client.conversationsGet())[0].name, "Alice");
 });
-
-// ============================================================
-// Relays
-// ============================================================
 
 test("relaysPut: insert, replace, announce, return the url", async (t) => {
 
@@ -726,9 +696,6 @@ test("relaysDelete: count, announce, stop syncing it", async (t) => {
     await assert.rejects(client.relaysDelete({}));
 });
 
-// A send whose POST is held at the relay until released, answered with a
-// 401 that teaches a relay key: the session then saves after the relay
-// change below has replaced it.
 async function heldPost(client, relays) {
 
     const RELAY_PKH = "ab".repeat(32);
@@ -746,7 +713,6 @@ async function heldPost(client, relays) {
 
     const sending = client.send(client.publicKeyHex, "hi").catch(e => e);
 
-    // send encrypts first; wait until the POST is at the relay
     while (posts(relays).length === 0) {
         await tick();
     }

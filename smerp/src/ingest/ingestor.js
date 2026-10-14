@@ -7,53 +7,6 @@ import {
 } from "../../../smep/src/index.js";
 import { RealClock } from "../lib/clock.js";
 
-/**
- * Turns the envelopes of a relay batch into stored records: the consume
- * of RelaySession (session/relay-session.js). Shared by all sessions.
- *
- * Per frame, in batch order:
- *
- *   hash       envelopeHash (sha256 of the bytes)
- *   dedup      hash already stored            → skipped
- *   parse      readEnvelope                   throws → rejected, skipped
- *   decrypt    decryptEnvelope                throws → rejected, skipped
- *   store      envelopesPut                   throws → propagates
- *   convo      conversationsPut               throws → propagates
- *   notify     onEnvelope, onConversation
- *
- * A rejected envelope is a problem with the envelope: retrying gives the
- * same result, so the batch goes on and the session's cursor moves past
- * it. A storage error is local: it propagates, the session keeps its
- * cursor and fetches the batch again later; dedup makes that safe.
- *
- * Batches are ingested one at a time. Sessions run in parallel and every
- * relay holds the same envelopes; if batches interleaved, two could both
- * pass the dedup check for one envelope (announced and counted unread
- * twice), or both read a conversation and write it back (an unread
- * increment lost). markRead runs in the same line, so it cannot lose a
- * concurrent increment either.
- *
- * Stored envelope:
- *
- *   { hash,                         hex sha256 of the envelope bytes
- *     contentType, plaintext,
- *     senderPublicKeyHex, recipientPublicKeyHex,
- *     publicKeyHex,                 the peer: recipient if we sent it, else sender
- *     direction,                    "inbound" | "outbound"
- *     sentAt,                       wire timestamp (seconds) as ms
- *     receivedAt }                  strictly increasing; orders same-second envelopes
- *
- * Stored conversation:
- *
- *   { publicKeyHex, unreadCount, lastMessageAt, name? }
- *
- * name is the user's local label for the peer, set only through rename.
- *
- * Our own sent envelopes come back through sync as "outbound" and are not
- * counted unread, except a note to ourselves (we are also the recipient),
- * which is unread like any envelope addressed to us.
- */
-/** Longest conversation name, in characters; rename cuts longer ones. */
 export const MAX_CONVERSATION_NAME = 64;
 
 export class Ingestor {
@@ -63,11 +16,8 @@ export class Ingestor {
         storage,
         logger,
         clock = RealClock,
-        // (envelope) after it is stored
         onEnvelope = () => {},
-        // (conversation, created) after it is stored
         onConversation = () => {},
-        // ({ hash, reason, relayUrl }) for a skipped envelope
         onRejected = () => {},
     }) {
 
@@ -88,22 +38,13 @@ export class Ingestor {
 
         this.publicKeyHex = identity.publicKeyHex ?? null;
         this.lastReceivedAt = 0;
-        this.queue = Promise.resolve();   // tail of the tasks in line
+        this.queue = Promise.resolve();
     }
 
-    /**
-     * Ingest a batch once the batches before it are done. frames: the
-     * envelopes, each an ArrayBuffer. relayUrl is only reported with
-     * rejections. Rejects on a storage error.
-     */
     ingest(frames, relayUrl = null) {
         return this.enqueue(() => this.ingestBatch(frames, relayUrl));
     }
 
-    /**
-     * Reset a conversation's unreadCount to 0. Resolves with the stored
-     * conversation, or null if there is none or nothing was unread.
-     */
     markRead(publicKeyHex) {
 
         insist(publicKeyHex, "string");
@@ -126,17 +67,11 @@ export class Ingestor {
         });
     }
 
-    /**
-     * Set a conversation's name, or remove it when name is empty. The name
-     * is trimmed and cut to MAX_CONVERSATION_NAME characters. Resolves
-     * with the stored conversation, or null if there is none.
-     */
     rename(publicKeyHex, name) {
 
         insist(publicKeyHex, "string");
         insist(name, "string");
 
-        // Cut by code point so a surrogate pair is never split.
         const label = [...name.trim()].slice(0, MAX_CONVERSATION_NAME).join("").trim();
 
         return this.enqueue(async () => {
@@ -158,17 +93,10 @@ export class Ingestor {
         });
     }
 
-    // =====================================================
-    // Internal
-    // =====================================================
-
-    // Run task once the tasks before it are done.
     enqueue(task) {
 
         const run = this.queue.then(task);
 
-        // A failed task must not block the ones after it; its caller
-        // still gets the error through run.
         this.queue = run.catch(() => {});
 
         return run;
@@ -189,12 +117,7 @@ export class Ingestor {
         this.logger.debug("ingested", { relayUrl, frames: frames.length, stored });
     }
 
-    // Resolves true if the envelope was stored, false if it was a
-    // duplicate or rejected.
     async ingestFrame(bytes, relayUrl) {
-
-        // The hash is computed from the bytes, never read from the header, so
-        // another envelope cannot claim it and get the real one skipped.
         const hash = await envelopeHash(bytes);
 
         if (await this.isStored(hash)) {
