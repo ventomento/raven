@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 
 import * as root from "raven";
 import * as smep from "raven/smep";
@@ -57,4 +58,13 @@ test("every entry point shares one copy of the identity classes", () => {
     assert.equal(root.PrivateIdentity, smep.PrivateIdentity);
     assert.equal(root.SmerpClient, smerp.SmerpClient);
     assert.equal(root.EventTypes, smerp.EventTypes);
+});
+
+test("raven/webui.css: the stylesheet bundling apps import", () => {
+
+    const pkg = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
+    const target = pkg.exports["./webui.css"];
+
+    assert.equal(target, "./webui/src/styles/webui.css");
+    assert.equal(existsSync(new URL(`../../.${target}`, import.meta.url)), true);
 });

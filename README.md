@@ -35,6 +35,7 @@ Peers are addressed by their hex public key. The library never stores the privat
 | `raven/smerp`   | Building blocks for a custom client (storage, transport, sync, auth) |
 | `raven/testing` | Mock relay for tests (Node only) |
 | `raven/webui`   | Browser UI on top of `SmerpClient` (browser only) |
+| `raven/webui.css` | The web UI's stylesheet, for bundlers (import it and pass `injectStylesheet: false`) |
 
 ## Development
 

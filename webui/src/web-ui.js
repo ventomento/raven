@@ -16,11 +16,13 @@ export class WebUi {
     recipientPublicKeyHex = null,
     relays = [],
     debug = false,
+    injectStylesheet = true,
   }) {
 
     insist(privateKeyHex, "string");
     insist(root, HTMLElement);
     insist(relays, Array);
+    insist(injectStylesheet, "boolean");
 
     this.privateKeyHex = privateKeyHex;
     this.root = root;
@@ -28,6 +30,7 @@ export class WebUi {
     this.recipientPublicKeyHex = recipientPublicKeyHex === null ? null : parseKey(recipientPublicKeyHex, "recipientPublicKeyHex");
     this.relays = relays.map(normalizeRelay);
     this.debug = debug;
+    this.injectStylesheet = injectStylesheet;
     this.client = null;
     this.shell = null;
     this.stylesheet = null;
@@ -54,12 +57,12 @@ export class WebUi {
     });
 
     try {
-      await Promise.all([client.start(), this.#loadStylesheet()]);
+      await Promise.all([client.start(), this.injectStylesheet && this.#loadStylesheet()]);
       await this.#seedRelays(client);
     }
     catch (error) {
       await client.stop();
-      this.stylesheet.remove();
+      this.stylesheet?.remove();
       this.stylesheet = null;
       throw error;
     }
@@ -82,7 +85,7 @@ export class WebUi {
     this.shell.destroy();
     await this.client.stop();
 
-    this.stylesheet.remove();
+    this.stylesheet?.remove();
 
     this.shell = null;
     this.client = null;
