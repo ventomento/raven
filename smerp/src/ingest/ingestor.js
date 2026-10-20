@@ -185,6 +185,7 @@ export class Ingestor {
                 (existing?.unreadCount ?? 0) +
                 (record.recipientPublicKeyHex === this.publicKeyHex ? 1 : 0),
             lastMessageAt: Math.max(existing?.lastMessageAt ?? 0, record.sentAt),
+            ...(record.direction === "inbound" && { hasInbound: true }),
         };
 
         await this.storage.conversationsPut(conversation);

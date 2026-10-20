@@ -64,7 +64,7 @@ test("an inbound envelope is stored, its conversation created, envelope announce
         receivedAt: clock.now(),
     });
 
-    const conversation = { publicKeyHex: alice.publicKeyHex, unreadCount: 1, lastMessageAt: stored.sentAt };
+    const conversation = { publicKeyHex: alice.publicKeyHex, unreadCount: 1, lastMessageAt: stored.sentAt, hasInbound: true };
 
     assert.deepEqual(await storage.conversationsGet(), [conversation]);
     assert.deepEqual(events, [
@@ -389,6 +389,40 @@ test("a name survives later ingests and markRead", async () => {
     const [conversation] = await storage.conversationsGet();
     assert.equal(conversation.name, "Alice");
     assert.equal(conversation.unreadCount, 0);
+});
+
+test("hasInbound is set by the peer's first envelope, never by ours or a note to self", async () => {
+
+    const { bob, alice, carol, storage, ingestor } = await setup();
+
+    await ingestor.ingest([
+        (await envelopeFor(bob, alice, "to alice")).buffer,
+        (await envelopeFor(bob, bob, "note")).buffer,
+        (await envelopeFor(carol, bob, "from carol")).buffer,
+    ]);
+
+    const flag = async (publicKeyHex) => (await storage.conversationsGet({ publicKeyHex }))[0].hasInbound;
+
+    assert.equal(await flag(alice.publicKeyHex), undefined);
+    assert.equal(await flag(bob.publicKeyHex), undefined);
+    assert.equal(await flag(carol.publicKeyHex), true);
+
+    await ingestor.ingest([(await envelopeFor(alice, bob, "from alice")).buffer]);
+    assert.equal(await flag(alice.publicKeyHex), true);
+});
+
+test("hasInbound survives later outbound envelopes, markRead and rename", async () => {
+
+    const { bob, alice, storage, ingestor } = await setup();
+
+    await ingestor.ingest([(await envelopeFor(alice, bob, "1")).buffer]);
+    await ingestor.ingest([(await envelopeFor(bob, alice, "2")).buffer]);
+    await ingestor.markRead(alice.publicKeyHex);
+    await ingestor.rename(alice.publicKeyHex, "Alice");
+    await ingestor.rename(alice.publicKeyHex, "");
+
+    const [conversation] = await storage.conversationsGet();
+    assert.equal(conversation.hasInbound, true);
 });
 
 test("rename and concurrent ingests lose neither the name nor an unread increment", async () => {

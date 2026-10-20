@@ -3,6 +3,7 @@ import {
     PublicIdentity,
     encrypt,
     envelopeHash,
+    notifyTopic,
 } from "../../../smep/src/index.js";
 import { insist } from "../../../smep/src/util/util.js";
 import { ContentTypes } from "../../../smep/src/envelope/content-types.js";
@@ -39,6 +40,16 @@ const NOTIFY_FIELDS = Object.freeze([
     "lastFailureReason",
 ]);
 
+// The phone notification a sender pushes to ntfy (planned_feature.md,
+// smerp_rfc "Client notifications"). It says only that something arrived.
+const NTFY_PUSH = Object.freeze({
+    headers: Object.freeze({ "Title": "raven", "X-Sequence-ID": "raven" }),
+    body: "raven: new envelope received",
+    timeout: 5000,
+    maxBytes: 64 * 1024,
+    defaultPauseMs: 60 * 1000,
+});
+
 export class SmerpClient {
 
     constructor({
@@ -50,9 +61,12 @@ export class SmerpClient {
         logger = null,
         syncIntervalMs = 60 * 1000,
         concurrency = Scheduler.DEFAULTS.concurrency,
+        notify = false,
+        ntfyUrl = "https://ntfy.sh",
     }) {
 
         insist(identity, PrivateIdentity);
+        insist(notify, "boolean");
 
         this.identity = identity;
         this.transporter = transporter;
@@ -61,6 +75,9 @@ export class SmerpClient {
         this.clock = clock;
         this.syncIntervalMs = syncIntervalMs;
         this.concurrency = concurrency;
+        this.notify = notify;
+        this.ntfyUrl = parseNtfyUrl(ntfyUrl);
+        this.ntfyPausedUntil = 0;
 
         this.eventBus = new EventBus();
         this.status = ClientStatus.STOPPED;
@@ -219,12 +236,73 @@ export class SmerpClient {
         }
 
         void this.sync();
+        void this.pushNotification(recipientPublicKeyHex);
 
         return {
             hash,
             delivered,
             failed,
         };
+    }
+
+    // Pushes "something arrived" to the recipient's ntfy topic. Best effort:
+    // never awaited by send(), never throws. Only when notify is on, never for
+    // a note to self, and only to a peer we have received from (a cold first
+    // contact never gets a push). The topic is a secret: it is never logged.
+    async pushNotification(recipientPublicKeyHex) {
+
+        try {
+
+            const recipient = recipientPublicKeyHex.toLowerCase();
+
+            if (!this.notify || recipient === this.publicKeyHex || this.clock.now() < this.ntfyPausedUntil) {
+                return;
+            }
+
+            const [conversation] = await this.storage.conversationsGet({ publicKeyHex: recipient });
+
+            if (!conversation?.hasInbound) {
+                return;
+            }
+
+            const topic = await notifyTopic(this.identity, this.publicKeyHex, recipient);
+
+            const response = await this.transporter.transport({
+                url: `${this.ntfyUrl}/${topic}`,
+                options: {
+                    method: "POST",
+                    headers: { ...NTFY_PUSH.headers },
+                    body: NTFY_PUSH.body,
+                },
+                timeout: NTFY_PUSH.timeout,
+                maxBytes: NTFY_PUSH.maxBytes,
+            });
+
+            if (response.status === 429) {
+                const seconds = Number(response.headers?.["retry-after"]);
+                const waitMs = Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : NTFY_PUSH.defaultPauseMs;
+                this.ntfyPausedUntil = this.clock.now() + waitMs;
+                this.logger.warn("ntfy push rate limited", { waitMs });
+            }
+            else if (response.status !== 200) {
+                this.logger.warn("ntfy push refused", { status: response.status });
+            }
+            else {
+                this.logger.debug("ntfy push sent");
+            }
+        }
+        catch (error) {
+            this.logger.warn("ntfy push failed", { reason: error.message });
+        }
+    }
+
+    // The topic a peer's client pushes to when it sends to us: what our phone
+    // subscribes to, to get notified for this conversation.
+    async notifyTopic(publicKeyHex) {
+
+        this.assertRunning();
+
+        return notifyTopic(this.identity, publicKeyHex, this.publicKeyHex);
     }
 
     on(eventType, callback) {
@@ -436,6 +514,19 @@ function defaultContentType(plaintext) {
     return typeof plaintext === "string"
         ? ContentTypes.TEXT_UTF8
         : ContentTypes.UNKNOWN;
+}
+
+function parseNtfyUrl(ntfyUrl) {
+
+    insist(ntfyUrl, "string");
+
+    const url = new URL(ntfyUrl);
+
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+        throw new Error("ntfyUrl must be an http(s) URL");
+    }
+
+    return ntfyUrl.trim().replace(/\/+$/, "");
 }
 
 function pick(record, fields) {

@@ -11,6 +11,7 @@ import {
 import { StorageMemory } from "../../src/storage/storage-memory.js";
 import { TransportDefault } from "../../src/transport/transport-default.js";
 import { startRelay } from "../helpers/relay-fixtures.js";
+import http from "node:http";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -324,4 +325,60 @@ test("a dead relay does not stop sends or syncs through a live one", async (t) =
 
     assert.equal(transporter.gets(dead.relayUrl).length, deadRequests);
     assert.equal((await bob.envelopesGet({ hash: sent.hash })).length, 1);
+});
+
+async function startNtfyCapture(t) {
+
+    const received = [];
+    let notify = () => {};
+
+    const server = http.createServer((req, res) => {
+
+        const chunks = [];
+        req.on("data", chunk => chunks.push(chunk));
+        req.on("end", () => {
+            received.push({
+                method: req.method,
+                path: req.url,
+                title: req.headers.title,
+                sequenceId: req.headers["x-sequence-id"],
+                body: Buffer.concat(chunks).toString("utf8"),
+            });
+            res.writeHead(200, { "content-type": "application/json" }).end("{}");
+            notify();
+        });
+    });
+
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    t.after(() => new Promise(resolve => server.close(resolve)));
+
+    return {
+        received,
+        ntfyUrl: `http://127.0.0.1:${server.address().port}`,
+        next: () => new Promise(resolve => { notify = resolve; }),
+    };
+}
+
+test("notify: a reply pushes once to the topic the peer subscribes to; a cold first message doesn't", async (t) => {
+
+    const { relay } = await startRelay(t);
+    const ntfy = await startNtfyCapture(t);
+
+    const alice = await startClient(t, relay, { notify: true, ntfyUrl: ntfy.ntfyUrl });
+    const bob = await startClient(t, relay, { notify: true, ntfyUrl: ntfy.ntfyUrl });
+
+    await bob.send(alice.publicKeyHex, "hi alice");
+    await alice.sync();
+
+    const pushed = ntfy.next();
+    await alice.send(bob.publicKeyHex, "hi bob");
+    await pushed;
+
+    assert.deepEqual(ntfy.received, [{
+        method: "POST",
+        path: `/${await bob.notifyTopic(alice.publicKeyHex)}`,
+        title: "raven",
+        sequenceId: "raven",
+        body: "raven: new envelope received",
+    }]);
 });

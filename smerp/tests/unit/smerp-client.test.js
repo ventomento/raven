@@ -9,12 +9,12 @@ import {
     DispatchError,
     ContentTypes,
 } from "../../../index.js";
-import { readEnvelope, bytesToHex, envelopeHash } from "../../../smep/src/index.js";
+import { readEnvelope, bytesToHex, envelopeHash, notifyTopic } from "../../../smep/src/index.js";
 import { StorageMemory } from "../../src/storage/storage-memory.js";
 import { VirtualClock, FakeRelays, tick } from "../helpers/fakes.js";
 import { Scheduler } from "../../src/sync/scheduler.js";
 import { encodeBatch } from "../../src/protocol/index.js";
-import { identity, envelopeFor, garbageFrame, deferred } from "../helpers/relay-fixtures.js";
+import { identity, envelopeFor, garbageFrame, deferred, RecordingLogger } from "../helpers/relay-fixtures.js";
 
 const A = "http://a.test";
 const B = "http://b.test";
@@ -90,6 +90,7 @@ test("every method but on needs a running client", async () => {
             () => client.relaysGet(),
             () => client.relaysPut({ relayUrl: A, relayType: "archive" }),
             () => client.relaysDelete({ relayUrl: A }),
+            () => client.notifyTopic("ab".repeat(32)),
         ]) {
             await assert.rejects(call(), NotStartedError, call.toString());
         }
@@ -499,6 +500,170 @@ test("send: does not wait for a sync in progress", async (t) => {
 
     gate.resolve();
     await syncing;
+});
+
+const NTFY = "http://ntfy.test";
+
+const pushes = (relays) => relays.requests.filter(r => r.url.startsWith(`${NTFY}/`));
+
+// A push runs after send() returns and awaits WebCrypto, so tests wait for it
+// to reach the transport (or, for "no push", give it ample time not to).
+async function pushed(relays, count) {
+
+    for (let i = 0; i < 500 && pushes(relays).length < count; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1));
+    }
+
+    assert.equal(pushes(relays).length, count);
+}
+
+async function settle() {
+    await new Promise(resolve => setTimeout(resolve, 50));
+}
+
+async function startNotifyClient(t, options = {}) {
+
+    const started = await startFakeClient(t, { relayUrls: [A, B], notify: true, ntfyUrl: `${NTFY}/`, ...options });
+    const bob = await identity();
+
+    await started.storage.conversationsPut({ publicKeyHex: bob.publicKeyHex, unreadCount: 0, hasInbound: true });
+
+    return { ...started, bob };
+}
+
+test("notify: one push per send to the pair's topic, however many relays took it", async (t) => {
+
+    const { client, relays, bob } = await startNotifyClient(t);
+
+    await client.send(bob.publicKeyHex, "hi");
+    await pushed(relays, 1);
+    await settle();
+
+    const [push, ...more] = pushes(relays);
+
+    assert.deepEqual(more, []);
+    assert.equal(push.method, "POST");
+    assert.equal(push.url, `${NTFY}/${await notifyTopic(bob, client.publicKeyHex, bob.publicKeyHex)}`);
+    assert.deepEqual(push.headers, { "Title": "raven", "X-Sequence-ID": "raven" });
+    assert.equal(push.body, "raven: new envelope received");
+    assert.equal(posts(relays, A).length, 1);
+    assert.equal(posts(relays, B).length, 1);
+});
+
+test("notify: no push when off, to a peer we never heard from, or to ourselves", async (t) => {
+
+    const off = await startNotifyClient(t, { notify: false });
+    await off.client.send(off.bob.publicKeyHex, "hi");
+
+    const { client, relays } = await startNotifyClient(t);
+    const stranger = await identity();
+    await client.storage.conversationsPut({ publicKeyHex: stranger.publicKeyHex, unreadCount: 0 });
+
+    await client.send(stranger.publicKeyHex, "cold");
+    await client.send((await identity()).publicKeyHex, "no conversation");
+    await client.send(client.publicKeyHex, "note");
+    await settle();
+
+    assert.deepEqual(pushes(off.relays), []);
+    assert.deepEqual(pushes(relays), []);
+});
+
+test("notify: no push when no relay accepted the envelope", async (t) => {
+
+    const { client, relays, bob } = await startNotifyClient(t);
+    relays.hook = (request) => request.method === "POST" && !request.url.startsWith(NTFY) ? { status: 500 } : null;
+
+    await assert.rejects(client.send(bob.publicKeyHex, "hi"), DispatchError);
+    await settle();
+
+    assert.deepEqual(pushes(relays), []);
+});
+
+test("notify: a refused, failing or hanging push never affects send", async (t) => {
+
+    const { client, relays, bob } = await startNotifyClient(t);
+    const gate = deferred();
+
+    const answers = [
+        () => ({ status: 500 }),
+        () => { throw new Error("offline"); },
+        () => gate.promise,
+    ];
+    relays.hook = (request) => request.url.startsWith(NTFY) ? answers.shift()() : null;
+
+    for (let i = 1; i <= 3; i++) {
+        const sent = await client.send(bob.publicKeyHex, "hi");
+        assert.deepEqual(sent.delivered.sort(), [A, B]);
+        await pushed(relays, i);
+    }
+
+    gate.resolve(null);
+});
+
+test("notify: a 429 pauses pushes for its Retry-After", async (t) => {
+
+    const { client, clock, relays, bob } = await startNotifyClient(t);
+
+    relays.hook = (request) => request.url.startsWith(NTFY) ? { status: 429, headers: { "retry-after": "30" } } : null;
+    await client.send(bob.publicKeyHex, "1");
+    await pushed(relays, 1);
+    await settle();
+
+    relays.hook = null;
+    await client.send(bob.publicKeyHex, "2");
+    await settle();
+    assert.equal(pushes(relays).length, 1, "paused");
+
+    clock.advance(30 * 1000);
+    await client.send(bob.publicKeyHex, "3");
+    await pushed(relays, 2);
+});
+
+test("notify: options are checked, ntfyUrl loses trailing slashes", async () => {
+
+    const id = await identity();
+
+    assert.equal(new SmerpClient({ identity: id }).ntfyUrl, "https://ntfy.sh");
+    assert.equal(new SmerpClient({ identity: id }).notify, false);
+    assert.equal(new SmerpClient({ identity: id, ntfyUrl: "http://localhost:81//" }).ntfyUrl, "http://localhost:81");
+
+    for (const options of [
+        { notify: "yes" },
+        { notify: null },
+        { ntfyUrl: 42 },
+        { ntfyUrl: "not a url" },
+        { ntfyUrl: "ftp://ntfy.test" },
+    ]) {
+        assert.throws(() => new SmerpClient({ identity: id, ...options }), JSON.stringify(options));
+    }
+});
+
+test("notifyTopic: the topic the peer pushes to us on", async (t) => {
+
+    const { client, bob } = await startNotifyClient(t);
+
+    assert.equal(
+        await client.notifyTopic(bob.publicKeyHex),
+        await notifyTopic(bob, bob.publicKeyHex, client.publicKeyHex)
+    );
+    await assert.rejects(client.notifyTopic(client.publicKeyHex), /note to self/);
+});
+
+test("notify: the topic never reaches the log", async (t) => {
+
+    const entries = [];
+    const logger = new RecordingLogger({ entries });
+    const { client, relays, bob } = await startNotifyClient(t, { logger });
+
+    relays.hook = (request) => request.url.startsWith(NTFY) ? { status: 500 } : null;
+    await client.send(bob.publicKeyHex, "hi");
+    await pushed(relays, 1);
+    await settle();
+
+    const topic = await notifyTopic(bob, client.publicKeyHex, bob.publicKeyHex);
+
+    assert.ok(entries.some(([, message]) => message === "ntfy push refused"));
+    assert.ok(!JSON.stringify(entries).includes(topic));
 });
 
 test("conversationsGet: newest lastMessageAt first", async (t) => {
