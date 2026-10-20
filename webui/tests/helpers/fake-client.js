@@ -7,6 +7,7 @@ export class FakeClient {
     constructor({ publicKeyHex = "aa".repeat(32) } = {}) {
 
         this.publicKeyHex = publicKeyHex;
+        this.ntfyUrl = "https://ntfy.sh";
         this.status = "running";
         this.storage = new StorageMemory();
         this.calls = [];
@@ -108,6 +109,11 @@ export class FakeClient {
         await this.storage.conversationsPut(conversation);
 
         return conversation;
+    }
+
+    async notifyTopic(publicKeyHex) {
+        this.record("notifyTopic", publicKeyHex);
+        return `raven-${publicKeyHex.slice(0, 32)}`;
     }
 
     async relaysGet(options = {}) {

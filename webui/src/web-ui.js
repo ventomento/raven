@@ -16,11 +16,18 @@ export class WebUi {
     recipientPublicKeyHex = null,
     relays = [],
     debug = false,
+    notify = false,
+    ntfyUrl = null,
   }) {
 
     insist(privateKeyHex, "string");
     insist(root, HTMLElement);
     insist(relays, Array);
+    insist(notify, "boolean");
+
+    if (ntfyUrl !== null) {
+      insist(ntfyUrl, "string");
+    }
 
     this.privateKeyHex = privateKeyHex;
     this.root = root;
@@ -28,6 +35,8 @@ export class WebUi {
     this.recipientPublicKeyHex = recipientPublicKeyHex === null ? null : parseKey(recipientPublicKeyHex, "recipientPublicKeyHex");
     this.relays = relays.map(normalizeRelay);
     this.debug = debug;
+    this.notify = notify;
+    this.ntfyUrl = ntfyUrl;
     this.client = null;
     this.databaseName = null;
     this.shell = null;
@@ -54,6 +63,8 @@ export class WebUi {
       identity,
       storage,
       debug: this.debug,
+      notify: this.notify,
+      ...(this.ntfyUrl !== null && { ntfyUrl: this.ntfyUrl }),
     });
 
     try {

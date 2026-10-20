@@ -68,8 +68,11 @@
 
     async function open(privateKeyHex) {
       try {
-        const debug = new URLSearchParams(location.search).has("debug");
-        await new WebUi({ privateKeyHex, relays, debug }).start();
+        const params = new URLSearchParams(location.search);
+        const debug = params.has("debug");
+        const notify = params.has("notify");
+        const ntfyUrl = params.get("ntfy");
+        await new WebUi({ privateKeyHex, relays, debug, notify, ntfyUrl }).start();
         document.getElementById("login-style").remove();
       }
       catch (error) {

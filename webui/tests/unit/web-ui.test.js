@@ -38,3 +38,22 @@ test("the stylesheet ships as a JS string that styles .webui", () => {
     assert.equal(typeof WEBUI_CSS, "string");
     assert.match(WEBUI_CSS, /^\.webui \{/m);
 });
+
+test("notify and ntfyUrl are checked and kept for the client", t => {
+
+    withHtmlElement(t);
+
+    const root = new FakeElement();
+    const defaults = new WebUi({ privateKeyHex: PRIVATE_KEY_HEX, root });
+
+    assert.equal(defaults.notify, false);
+    assert.equal(defaults.ntfyUrl, null);
+
+    const set = new WebUi({ privateKeyHex: PRIVATE_KEY_HEX, root, notify: true, ntfyUrl: "http://localhost:8090" });
+
+    assert.equal(set.notify, true);
+    assert.equal(set.ntfyUrl, "http://localhost:8090");
+
+    assert.throws(() => new WebUi({ privateKeyHex: PRIVATE_KEY_HEX, root, notify: "yes" }));
+    assert.throws(() => new WebUi({ privateKeyHex: PRIVATE_KEY_HEX, root, ntfyUrl: 42 }));
+});

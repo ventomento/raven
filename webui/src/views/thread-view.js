@@ -4,6 +4,7 @@ import { shortHex, peerLabel, formatTime } from "../format.js";
 import { ComposeForm } from "../components/compose-form.js";
 import { envelopeContent } from "../components/envelope-content.js";
 import { avatar } from "../components/avatar.js";
+import { openNotifyDialog } from "../components/notify-dialog.js";
 
 const PAGE_SIZE = 50;
 
@@ -13,6 +14,8 @@ export class ThreadView {
     this.client = client;
     this.shell = shell;
     this.publicKeyHex = publicKeyHex;
+    this.container = null;
+    this.dialog = null;
     this.list = null;
     this.olderButton = null;
     this.head = null;
@@ -24,6 +27,7 @@ export class ThreadView {
 
   mount(container) {
 
+    this.container = container;
     this.list = h("ul", { class: "messages" });
 
     this.olderButton = h("button", {
@@ -70,6 +74,9 @@ export class ThreadView {
   }
 
   unmount() {
+    this.dialog?.close();
+    this.dialog = null;
+    this.container = null;
     this.list = null;
     this.olderButton = null;
     this.head = null;
@@ -131,7 +138,34 @@ export class ThreadView {
       onclick: () => this.#startRename(),
     }, "Rename");
 
-    replaceChildren(this.head, back, avatar(this.publicKeyHex, label), title, rename);
+    const notify = this.publicKeyHex !== this.client.publicKeyHex && h("button", {
+      class: "ghost",
+      type: "button",
+      title: "Phone notifications",
+      onclick: () => void this.#openNotify(),
+    }, "Notify");
+
+    replaceChildren(this.head, back, avatar(this.publicKeyHex, label), title, notify, rename);
+  }
+
+  async #openNotify() {
+
+    const topic = await this.client.notifyTopic(this.publicKeyHex);
+
+    if (!this.container) {
+      return;
+    }
+
+    const name = this.conversation?.name;
+
+    this.dialog?.close();
+    this.dialog = openNotifyDialog({
+      container: this.container,
+      topic,
+      ntfyUrl: this.client.ntfyUrl,
+      label: name || "this peer",
+      displayName: name || `raven ${shortHex(this.publicKeyHex)}`,
+    });
   }
 
   #startRename() {

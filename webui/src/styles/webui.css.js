@@ -687,6 +687,113 @@ export const WEBUI_CSS = String.raw`
   font-weight: 700;
 }
 
+/* Notify dialog */
+
+.webui .notify-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: calc(var(--gap) * 1.5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.webui .notify-dialog::backdrop {
+  background: rgb(10 14 22 / 0.55);
+}
+
+.webui .notify-dialog h2 {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+.webui .notify-dialog p {
+  margin: 0.6em 0;
+}
+
+.webui .notify-platforms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--gap);
+  margin: var(--gap) 0;
+}
+
+.webui .notify-platform {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: var(--gap);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+}
+
+.webui .notify-platform h3 {
+  align-self: flex-start;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.webui .notify-platform p {
+  margin: 0;
+}
+
+.webui .qr {
+  display: block;
+  width: 180px;
+  height: 180px;
+  border-radius: 4px;
+  image-rendering: pixelated;
+}
+
+.webui .button-link {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.webui .button-link:hover {
+  background: var(--surface);
+}
+
+.webui .button-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.webui .copy-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.webui .copy-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.webui .notify-notes {
+  margin: var(--gap) 0;
+  padding-left: 1.2em;
+}
+
+.webui .notify-actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+}
+
 /* Identity */
 
 .webui .label {
@@ -726,6 +833,7 @@ export const WEBUI_CSS = String.raw`
   .webui .message { max-width: 90%; }
   .webui .tab { font-size: 0.9rem; }
   .webui .avatar { width: 34px; height: 34px; }
+  .webui .thread-head { flex-wrap: wrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,4 +1,5 @@
 import { h, replaceChildren, downloadBytes } from "../dom.js";
+import { copyButton } from "../components/copy-button.js";
 
 export class IdentityView {
   constructor({ client, identity, shell }) {
@@ -138,24 +139,4 @@ export class IdentityView {
   onEvent() {}
 
   unmount() {}
-}
-
-function copyButton(getText) {
-
-  const button = h("button", {
-    class: "ghost",
-    type: "button",
-    onclick: async () => {
-      try {
-        await navigator.clipboard.writeText(await getText());
-        button.textContent = "Copied";
-      }
-      catch {
-        button.textContent = "Copy failed";
-      }
-      setTimeout(() => { button.textContent = "Copy"; }, 1500);
-    },
-  }, "Copy");
-
-  return button;
 }
