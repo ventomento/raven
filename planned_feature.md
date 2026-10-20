@@ -4,163 +4,190 @@ Status: planned, not implemented.
 
 ## Goal
 
-Get a notification on your phone when an envelope arrives, without running anything
-besides the relay. The notification says only that something arrived:
+Get a notification on your phone when a peer sends you an envelope. The notification says
+only that something arrived:
 
 > raven: new envelope received
 
-No sender, no hash, no content. [ntfy](https://ntfy.sh) delivers it: the phone runs the
-ntfy app (Android or iOS) and subscribes to a topic; the relay POSTs to that topic.
+No sender name, no hash, no content. [ntfy](https://ntfy.sh) delivers it: the phone runs
+the ntfy app (Android or iOS) and subscribes to a topic; the **sending client** POSTs to
+that topic after a relay accepted the envelope. Relays are not involved.
 
-## Why the relay, not a watcher
+## Why the sender, not the relay
 
-The relay already knows when an envelope for a mailbox arrives, and could already withhold
-it, so letting it send the notification adds no new trust. Users don't have to run a
-separate process. Notifications are an optional relay capability: a relay that doesn't
-support them answers 404, and the client says so.
+- **Relays stay passive.** A relay only ever answers requests and never opens an outbound
+  connection, so a volunteer can run one behind a firewall that drops everything else. No
+  ntfy config, no outbound budget, no registry, no new routes.
+- **The rate limit is per sender.** ntfy.sh limits each publisher IP (see limits below).
+  With the sender publishing, every user has their own budget instead of all users of a
+  relay sharing one.
+- **One push per envelope**, however many relays it was sent to.
+- **A clear contract, opt-in on both sides.** A sender chooses whether to push at all. A
+  receiver chooses, per conversation, whether to listen (by subscribing to that
+  conversation's topic). Neither needs the other's or a relay's cooperation to say no.
 
-## The topic is a secret, not the public key
+Accepted costs:
 
-Anyone who knows an ntfy topic can subscribe to it. If the topic were the public key, anyone
-who knows your key could watch when you get mail. So the topic is a random-looking secret
-that only the mailbox owner and the relays they registered it with know.
+- **No notification for a first message.** You can only listen to a peer whose key you
+  know. Unsolicited conversations are seen on the next sync and approved by listening.
+- **One ntfy subscription per conversation** you want notifications for.
+- **Notifications depend on the sender's client** supporting this and having it on.
+- **ntfy sees who talks to whom** for listening pairs (see "What leaks").
 
-The client derives it from the private key, so it is never stored and is the same on every
-device and every relay (one subscription in the ntfy app covers all relays that use the
-same ntfy server):
+## The topic
 
-```
-topic = "raven-" + hex(sha256("smerp-ntfy-topic" || uint32BE(epoch) || privateKeyBytes))[0..32]
-```
-
-`epoch` starts at 0. If the topic leaks, the user bumps it to get a new topic without a new
-identity, and registers again on each relay (the old topic is replaced). The client keeps
-the epoch in storage; it is not secret.
-
-The relay treats the topic as opaque and only checks its format (`^[A-Za-z0-9_-]{16,64}$`,
-which also fits ntfy's topic rules). How a client makes it is a client matter; the
-derivation above is the reference client's.
-
-## Protocol sketch (smerp_rfc addition)
-
-Three signed routes. As with `GET /envelopes`, the mailbox is the signer: you can only see
-or set notifications for your own key.
+One topic per direction of a conversation, derived from the X25519 shared secret that the
+two peers already compute for encryption, so only they can derive it:
 
 ```
-GET    /notify                                 → 200 {"ntfyUrl", "enabled"} | 401 | 404 (unsupported)
-POST   /notify    body: {"topic": "<topic>"}   → 200 {"ntfyUrl"} | 400 (bad topic) | 401 | 404
-DELETE /notify                                 → 200 | 401 | 404
+shared = X25519(own private key, peer public key)
+topic  = "raven-" + hex(sha256("smerp-ntfy-topic" || shared || rpkhBytes))[0..32]
 ```
 
-`POST` sets or replaces the mailbox's topic; `DELETE` removes it. `GET` tells a client the
-state without changing it, so a fresh device can show each relay's status. The response
-carries `ntfyUrl` because the client cannot build the subscribe URL `<ntfyUrl>/<topic>`
-without it.
+- `rpkhBytes` (the recipient's 32-byte public key) makes it directional: Alice → Bob and
+  Bob → Alice are different topics, so your own phone doesn't buzz when you send.
+- The label separates it from the AES and HMAC keys, which are `sha256(shared)`.
+- It is never stored: both clients derive it on demand, the same on every device.
+- Being derived from ECDH, not the private key bytes, it works with a non-extractable
+  `CryptoKey`.
 
-### When the relay pushes
+A leaked topic reveals only when that one peer sends to you, which the peer already knows.
+There is no rotation: if a topic leaks, unsubscribe from it (and the peer can turn pushing
+off), or move to a new identity.
 
-Relay state per mailbox: `{ topic, armed, lastPushAt, lastGetAt, registeredAt }`.
+## When the sender pushes
 
-When the relay stores an envelope it did not already hold (by `envelopeHash`), it pushes if
-all of these hold:
+After `send()` has at least one relay accepting the envelope (after the `DispatchError`
+check), the client pushes if all of these hold:
 
-- the recipient has a topic and is `armed`,
-- the sender is not the recipient (notes to self don't notify),
-- the cooldown has passed: `now - lastPushAt >= pushCooldown` (default 5 minutes).
+- notifications are on in this client (the `notify` constructor option, off by default),
+- the recipient is not ourselves (notes to self never push),
+- we have received at least one envelope from that peer (`hasInbound` on the conversation,
+  below).
 
-It then sets `armed = false` and `lastPushAt = now` **synchronously**, before the push is
-sent, so two concurrent uploads can't both push. A signed `GET /envelopes` by the mailbox
-owner sets `armed = true` and updates `lastGetAt`.
+The last rule means a cold first contact never pushes: only peers who have written to you
+get pushed to. That is spam reduction for honest clients and keeps unanswered contacts out
+of ntfy; a malicious sender can ignore it, but the receiver's opt-in is the real
+protection, and a peer can only spam its own pair topic, which the receiver mutes by
+unsubscribing.
 
-So you get **at most one notification per check, and at most one per cooldown**. Both
-bounds matter:
+The push is fire-and-forget: short timeout, no retry, failures logged (no topic in the
+log) and ignored. It never delays `send()` or makes it fail.
 
-- `armed` limits spam: anyone can send you envelopes, but they trigger at most one push
-  until you read the mailbox.
-- The cooldown covers an open client. The client syncs every 60 s, and each sync re-arms,
-  so without it the phone would buzz for nearly every message while you chat at a desktop,
-  and each buzz costs relay budget (see limits below).
-
-Not planned: suppressing pushes while the mailbox was read recently ("online"). It would
-also mute the phone whenever a laptop with the client is left open, which is the case
-notifications are for.
+Not yet: a cooldown. An active chat pushes on every message, which stacks notifications on
+iOS and spends the sender's daily budget. The likely next rule is "and no push to this
+peer in the last 5 minutes", possibly "unless the peer has replied since".
 
 ### The push
 
 ```
-POST <ntfyUrl>/<topic>
+POST https://ntfy.sh/<topic>
 Title: raven
 X-Sequence-ID: raven
 body: raven: new envelope received
 ```
 
-`X-Sequence-ID` makes ntfy clients replace the previous notification with the same ID
-instead of stacking a new one (Android and web; iOS still stacks). With every relay using
-the same ID, enabling notifications on several relays gives redundancy without N
-notifications per envelope on Android. Each relay still spends its own ntfy budget.
+`X-Sequence-ID` makes Android (and the web app) replace the previous notification of the
+topic instead of stacking a new one; iOS ignores it and stacks.
 
-The push is fire-and-forget: short timeout, no retries, failures logged and ignored. It
-never delays or fails the upload.
+**Browser support is verified** (October 2026): ntfy.sh answers the CORS preflight with
+`access-control-allow-origin: *`, `access-control-allow-methods: GET, PUT, POST, PATCH,
+DELETE`, `access-control-allow-headers: *`, and the POST with
+`access-control-allow-origin: *`. The webui can push with a plain `fetch`.
 
-Relay config: `ntfyUrl` (default `https://ntfy.sh`; a self-hosted ntfy works too),
-`ntfyToken` (optional access token, for a paid ntfy.sh plan or a protected server),
-`pushCooldown`, and the push budget (below). The relay only ever POSTs to the configured
-URL and never to a URL the client supplies, so a client can't make the relay call
-arbitrary hosts.
+### Configuration
 
-### Registrations expire
+Two `SmerpClient` constructor options, like `debug` and `concurrency`:
 
-A registration with no `GET /envelopes` for 90 days is removed, so abandoned mailboxes
-stop receiving pushes. `lastGetAt` makes this a cheap periodic sweep.
-
-## Relay implementation
-
-### Storage
-
-One record per mailbox, keyed by the recipient pkh, which the relay already reads from the
-envelope header on upload:
-
-```
-notify: pkh (primary key) → { topic, armed, lastPushAt, lastGetAt, registeredAt }
+```js
+new SmerpClient({ identity, notify: true, ntfyUrl: "https://ntfy.sh" })
 ```
 
-- Mock relay: a `Map` in memory, next to `StorageServer`.
-- Real relay: a persistent table (e.g. SQLite) is the source of truth, and the whole table is
-  cached in a `Map`, so the upload path never touches disk.
-- Writes are rare: `topic` changes only on `POST`/`DELETE /notify`; `armed` flips at most
-  twice per push, so it is persisted only when it flips, never on every GET; `lastGetAt`
-  only drives expiry, so it stays in memory and is flushed lazily (losing it on a crash
-  only delays an expiry).
+- `notify` (default `false`): whether this client pushes. Changeable only by building a
+  new client, so it is the embedding code's decision and nothing is stored.
+- `ntfyUrl` (default `https://ntfy.sh`): "my ntfy server". The client pushes to it and
+  builds subscribe links for it, so it matters even with `notify` off.
 
-### Push pipeline
+`WebUi` passes both through as options of its own; the page that embeds it decides (the
+demo reads `?notify`, as it reads `?debug`). The webui has no switch for them.
 
-```
-upload ──► store envelope (new hash?) ──► registry.get(rpkh)            O(1), in memory, no await
-                                            │ armed, not self, cooldown passed
-                                            ▼
-                                   armed = false, lastPushAt = now       synchronous: no double push
-                                            ▼
-                                   pending.add(topic)                    a Set: coalesces by topic
-                                            ▼
-           dispatcher: K workers, keep-alive HTTP agent, global token bucket = ntfy budget
-                       POST <ntfyUrl>/<topic> (short timeout, no retry)
-                       429 → pause all pushes for Retry-After
-                       budget exhausted → drop and count (best effort)
-```
+The client only ever pushes to its own `ntfyUrl`, never to a server the peer names. A
+peer-chosen URL would let a malicious peer point you at its own server and learn your IP
+each time you message it, which relays otherwise hide. Both peers need the same server for
+the topic to meet; for ntfy.sh, that is the default.
 
-- The upload path is one map lookup and a Set insert; nothing in it awaits the push.
-- The queue is bounded by the number of registered mailboxes (`armed` plus the cooldown
-  allow at most one pending push per mailbox), so an envelope flood can't grow it.
-- The relay keeps its own outbound budget matching its ntfy server's limits (for ntfy.sh
-  free: burst 60, one per 5 s, 250 per day), so it slows down before ntfy answers 429 and
-  never risks an IP ban.
-- Total registrations are capped by config: a mailbox can only register its own key, but
-  anyone can generate keys.
+## The conversation flag
+
+The conversation record gains `hasInbound: true`, set by the Ingestor on the first
+envelope from the peer (inbound, not a note to self). Every other write copies the
+existing record, as with `name`, so it survives. Checking it on send is one record lookup,
+no envelope scan.
+
+Conversations stored before the flag exists don't have it until the peer sends again, so
+existing contacts get no pushes until they write once more. Acceptable; no migration.
+
+## Receiving: subscribe on the phone
+
+The receiver's opt-in is the ntfy subscription itself; the client stores nothing for it.
+Listening is independent of the receiver's own `notify` option, so the UI offers it
+always.
+
+### The subscribe dialog
+
+A bell button in the thread header opens a dialog for the topic "peer → me":
+
+> Get a phone notification when \<name\> messages you. Install the ntfy app, then scan
+> this code.
+
+It always shows everything, in two sections side by side (stacked on a narrow screen),
+with no toggle and no guessing between phone and desktop. One QR code can't serve both
+platforms, so each section has its own:
+
+- **Android**:
+  - a QR code of `ntfy://<ntfy host>/<topic>?display=<name>`; scanning it opens the app
+    and subscribes in one step;
+  - the same URL as an "Open in ntfy" link, for when the dialog is open on the phone;
+  - the topic with a copy button.
+- **iPhone**:
+  - a QR code of the plain topic text; the camera shows it, the user copies it and pastes
+    it into the app's "+";
+  - the topic with a copy button, for when the dialog is open on the phone: copy, open
+    ntfy, tap "+", paste.
+
+The topic is shown in a selectable text field next to its copy button
+(`navigator.clipboard.writeText`), which is the fallback where the clipboard API is
+unavailable (it needs HTTPS or localhost). Below both sections: the server URL, only when
+it isn't ntfy.sh, and one line: anyone who has this topic can see when this peer messages
+you.
+
+Guide lines in the dialog:
+
+- Install the ntfy app (Google Play, F-Droid or the App Store).
+- iPhone: leave "Use another server" off for ntfy.sh (on, with the server URL, otherwise).
+  Allow notifications when asked. Rename the subscription after the contact, or it shows
+  as `raven-3f9a…`.
+- If notifications stop, delete the subscription in the app and add it again.
+
+The QR code needs an encoder, and the repo has no dependencies, so the webui gets its own
+small one in `components/`: byte mode, one error-correction level, versions up to about 5
+(the topic is 38 characters, the `ntfy://` link about 70). It is the largest piece of
+webui work in the feature. A first version could ship without it (copy button and Android
+link only), but then a desktop user has no good way to get the topic to the phone.
+
+### iOS specifics
+
+- The Camera app reads QR codes, but the ntfy iOS app registers no link that subscribes:
+  `ntfy://` does nothing and `https://ntfy.sh/<topic>` opens the ntfy web app in Safari.
+  Hence plain topic text and a paste.
+- Delivery from ntfy.sh is near-instant: ntfy.sh is connected to APNs (through Firebase)
+  and wakes the app, which fetches the message.
+- Known flakiness: if notifications stop, deleting and re-adding the subscription
+  re-subscribes it with Firebase (ntfy known issues).
 
 ## ntfy.sh limits
 
-ntfy.sh limits each **publisher** (by IP, an IPv6 /64), which here is the relay, shared by
-all its users. Anonymous use (checked October 2026, docs.ntfy.sh/publish/#limitations):
+ntfy.sh limits each **publisher** (by IP, an IPv6 /64), here the sender. Anonymous use
+(checked October 2026, docs.ntfy.sh/publish/#limitations):
 
 | Limit          | ntfy.sh, anonymous                                                 |
 |----------------|--------------------------------------------------------------------|
@@ -168,71 +195,52 @@ all its users. Anonymous use (checked October 2026, docs.ntfy.sh/publish/#limita
 | Daily messages | 250 per day, reset at midnight UTC                                 |
 | Message size   | 4,096 bytes                                                        |
 
-250 per day is the real ceiling: at about 10 pushes per user per day, that is about 25
-active users per relay. Fine for a personal relay, not for a public one. Repeated overruns
-can get the IP banned for a while.
-
-Options for a busier relay:
-
-- **Paid ntfy.sh** with `ntfyToken`: limits follow the account, not the IP
-  (Supporter 2,500, Pro 20,000, Business 50,000 messages per day).
-- **Self-hosted ntfy**: limits are whatever you configure; add the relay to
-  `visitor-request-limit-exempt-hosts`. Catch for **iOS**: instant delivery needs
-  `upstream-base-url: https://ntfy.sh`, which forwards a `poll_request` to ntfy.sh for
-  every message, counted against the ntfy server's IP. So the 250 per day applies again to
-  iOS pushes unless `upstream-access-token` holds a paid plan's token.
-- **`up`-prefixed topics** (to test, not to build on): with subscriber-based rate limiting
-  enabled, pushes to `up*` topics count against the subscribing phone instead of the
-  publisher. It needs the phone to hold a live stream (Android "instant delivery"; iOS
-  probably gets HTTP 507), and it is off by default, so it depends on the ntfy server.
+250 pushes a day is plenty for one person's sends, less so with many users behind one IP
+(CGNAT, an office). A 429 is ignored like any failed push; the client can stop pushing
+until the `Retry-After` has passed.
 
 ## Client sketch
 
-- `SmerpClient`:
-  - `notifyStatus(relayUrl)` → `{ supported, enabled, ntfyUrl }` via `GET /notify`
-    (404 → `supported: false`).
-  - `notifyEnable(relayUrl)` derives the topic, sends the signed `POST /notify` through
-    that relay's session, and returns the subscribe URL `<ntfyUrl>/<topic>` built from the
-    response's `ntfyUrl`.
-  - `notifyDisable(relayUrl)` sends `DELETE /notify`.
-  - `notifyRotate()` bumps the epoch and registers the new topic on every relay that had
-    notifications enabled.
-- webui, in two parts:
-  - **Per relay**, in the relay list: a switch showing "on", "off" or "not supported",
-    backed by `notifyStatus`. Registration, support and `ntfyUrl` really are per relay.
-  - **Once**, a "Phone notifications" card for the phone setup: one subscribe URL per
-    distinct `ntfyUrl` among the enabled relays (usually one), each with a QR code and a
-    link, plus the guide below.
-- Default to enabling one relay; more is allowed (redundancy, collapsed on Android by the
-  sequence ID, stacked on iOS).
-
-### Setup guide (shown in the card)
-
-Without the ntfy app the topic does nothing, so the card says:
-
-1. Install the ntfy app (Google Play, F-Droid or the App Store).
-2. **Android**: scan the QR code or tap the link. It encodes
-   `ntfy://<ntfy host>/<topic>?display=raven`, which opens the app and subscribes in one
-   step (`ntfy://` deep links are Android only).
-3. **iOS**: in the app, tap "+" and paste the topic. If the relay uses a server other than
-   ntfy.sh, turn on "Use another server" and paste the server URL too.
-4. Keep the topic private: anyone who has it can see when you get mail. If it leaks, use
-   "New topic" (rotation) and subscribe again.
+- **smep**: `notifyTopic(identity, peerPublicIdentity, recipientPublicKeyHex)` next to the
+  other derivations, so third-party clients have one specified function.
+- **SmerpClient**:
+  - constructor options `notify` (default `false`) and `ntfyUrl` (default
+    `https://ntfy.sh`);
+  - `send()` pushes per the rules above;
+  - `notifyTopic(publicKeyHex)` returns the topic the peer pushes to us on, and
+    `ntfyUrl` is readable, for the subscribe dialog.
+- **Ingestor**: sets `hasInbound` on the conversation.
+- **webui**:
+  - `WebUi` options `notify` and `ntfyUrl`, passed to the client; the demo reads `?notify`;
+  - the subscribe dialog (receiver opt-in) and a QR encoder in `components/`.
+- **Spec**: the derivation, the push and the push rules (cooldown as a SHOULD) go in a
+  short client-side spec section, since they are neither envelope format nor relay
+  protocol.
 
 ## What leaks, to whom
 
-- **Relay**: nothing new (it already sees arrivals for your key), plus your topic.
-- **ntfy server**: that some topic got a push at time T, and the relay's IP. It doesn't
-  learn your public key. With self-hosted ntfy on iOS, ntfy.sh also sees the poll requests
-  (a hash of the topic and the time).
+- **Relay**: nothing new.
+- **ntfy server**: for listening pairs, the sender's IP publishing to a topic and the
+  receiver's phone subscribing to it, with timing: who talks to whom. It doesn't learn
+  public keys or content. Pushes to topics nobody listens to still show the sender's IP
+  and timing.
 - **Apple/Google push services**: that the ntfy app got a push at time T.
+- **The peer**: nothing it doesn't know.
 - **Anyone else**: nothing, as long as the topic stays secret.
+
+## Considered: relays push
+
+The earlier plan had the receiver register a topic with each relay, and the relay push on
+upload (armed until the next read, a cooldown, a relay-wide budget). It notifies on first
+contact and needs one subscription in total, but it makes relays open outbound
+connections, puts all of a relay's users on one ntfy budget (about 25 active users on
+ntfy.sh free), needs routes, a registry and expiry on every relay, and gives one push per
+relay. Dropped for the reasons under "Why the sender".
 
 ## Open questions
 
-- The topic is derived from the private key bytes; check that the identity can export them
-  (WebUi has the hex; a non-extractable `CryptoKey` would need the derivation done at import).
-- Whether ntfy.sh enables subscriber-based rate limiting, and whether the iOS app can
-  register as a rate visitor (decides if `up` topics are usable).
-- Email later as a second channel: it needs a confirmation step (anyone can register any
-  address otherwise) and an operator-supplied mail provider, so it is out of scope here.
+- Whether the iOS camera's copy of a plain-text QR code works as described (untested on a
+  device).
+- An "I'm listening" control envelope so a sender pushes only to peers who subscribed:
+  less ntfy traffic and metadata, but it needs a content type the webui hides.
+- The cooldown rule (above).
