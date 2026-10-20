@@ -7,6 +7,7 @@ export {
   decryptEnvelope,
   envelopeHash,
 } from "./protocol/protocol.js";
+export { notifyTopic } from "./protocol/notify-topic.js";
 
 export { EnvelopeWriter } from "./envelope/envelope-writer.js";
 export { readEnvelope } from "./envelope/envelope-reader.js";
