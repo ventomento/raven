@@ -17,11 +17,12 @@ const TABS = [
 
 export class AppShell {
 
-  constructor({ client, identity, root, recipientPublicKeyHex = null }) {
+  constructor({ client, identity, root, recipientPublicKeyHex = null, deleteBrowserData }) {
 
     this.client = client;
     this.identity = identity;
     this.root = root;
+    this.deleteBrowserData = deleteBrowserData;
     this.view = null;
 
     this.header = new Header({

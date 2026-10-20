@@ -1,4 +1,4 @@
-SMEP: Secure Messaging Envelope Protocol, Version 3
+SMEP: Secure Messaging Envelope Protocol, Version 1
 
 1. Overview
 ===========
@@ -61,7 +61,7 @@ Plaintext is UTF-8 text when content_type is 0x01, otherwise raw bytes.
 
     offset  size  field                  type
     ------  ----  ---------------------  -------------------------------
-    0       1     version                uint8, 0x03
+    0       1     version                uint8, 0x01
     1       32    sender_public_key      X25519 public key
     33      32    recipient_public_key   X25519 public key
     65      8     timestamp              uint64, Unix seconds, sender clock
@@ -76,7 +76,7 @@ and MUST NOT exceed 4 MiB (4,194,304 bytes), so payload_size is at most
 4,194,226 and the plaintext at most 4,194,198 bytes.
 
 A writer MUST refuse to create a larger envelope. A parser MUST reject
-an envelope with a version other than 0x03, a payload_size below 28, a
+an envelope with a version other than 0x01, a payload_size below 28, a
 total length that does not match, or a total length above 4 MiB.
 
 

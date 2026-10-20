@@ -763,8 +763,8 @@ test("a relay token is sent on GET and POST to its own relay only", async (t) =>
 
     for (const requests of [gets, posts]) {
         assert.ok(requests(relays, A).length > 0);
-        assert.ok(requests(relays, A).every(r => r.authorization === "Bearer secret"));
-        assert.ok(requests(relays, B).every(r => r.authorization === undefined));
+        assert.ok(requests(relays, A).every(r => r.token === "secret"));
+        assert.ok(requests(relays, B).every(r => r.token === undefined));
     }
 });
 

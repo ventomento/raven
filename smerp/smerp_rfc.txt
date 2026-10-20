@@ -14,6 +14,14 @@ Every response carries the relay's current public key in
 x-smerp-relay-pkh, so a relay is configured by URL and type only, plus
 an access token if its operator requires one.
 
+Every response MUST carry:
+
+    Cache-Control: no-store
+
+A response depends on the signer, which is not part of the URL, so a
+shared cache (a proxy or CDN in front of the relay) keyed on the URL
+could otherwise serve one mailbox to another signer.
+
 Responses use these status codes only:
 
     200   success, with a body

@@ -115,17 +115,22 @@ test("a signature for one relay key does not verify at another", async () => {
     assert.equal((await verify(otherVerifier, request)).ok, false);
 });
 
-test("a token is sent as a bearer token, signed or not; none without a token", async () => {
+test("a token is sent in x-smerp-token, signed or not; none without a token", async () => {
 
     const { relay, builder: plain } = await setup();
     const { builder: gated } = await setup({ relayToken: "secret" });
 
     for (const relayPkh of [null, relay.publicKeyHex]) {
 
-        assert.equal((await gated.buildGet(0, relayPkh)).options.headers.authorization, "Bearer secret");
-        assert.equal((await gated.buildPost(new Uint8Array(1), relayPkh)).options.headers.authorization, "Bearer secret");
+        const get = (await gated.buildGet(0, relayPkh)).options.headers;
+        const post = (await gated.buildPost(new Uint8Array(1), relayPkh)).options.headers;
 
-        assert.equal("authorization" in (await plain.buildGet(0, relayPkh)).options.headers, false);
+        assert.equal(get["x-smerp-token"], "secret");
+        assert.equal(post["x-smerp-token"], "secret");
+        assert.equal("authorization" in get, false);
+        assert.equal("authorization" in post, false);
+
+        assert.equal("x-smerp-token" in (await plain.buildGet(0, relayPkh)).options.headers, false);
     }
 });
 

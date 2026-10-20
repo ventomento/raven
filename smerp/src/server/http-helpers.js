@@ -1,12 +1,13 @@
 import { SmerpHeaders } from "../protocol/index.js";
+import { AuthHeaders } from "../auth/request-signer.js";
 
 // Request headers a browser client sends (auth_rfc section 9).
 const ALLOWED_REQUEST_HEADERS = [
     "content-type",
-    "authorization",
-    "x-smerp-pkh",
-    "x-smerp-timestamp",
-    "x-smerp-signature",
+    AuthHeaders.pkh,
+    AuthHeaders.timestamp,
+    AuthHeaders.signature,
+    AuthHeaders.token,
 ];
 
 // Response headers a browser client must be able to read (smerp_rfc

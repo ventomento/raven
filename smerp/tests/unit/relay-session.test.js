@@ -378,7 +378,7 @@ test("state is restored from the stored relay record, and the token is sent", as
 
     const [request] = ctx.requests;
     assert.equal(request.url, `${RELAY_URL}/envelopes?cursor=17`);
-    assert.equal(request.options.headers.authorization, "Bearer secret");
+    assert.equal(request.options.headers["x-smerp-token"], "secret");
     assert.equal(signed(request), true);
 });
 

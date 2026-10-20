@@ -11,6 +11,7 @@ export const AuthHeaders = Object.freeze({
     pkh: "x-smerp-pkh",
     timestamp: "x-smerp-timestamp",
     signature: "x-smerp-signature",
+    token: "x-smerp-token",
 });
 
 export function canonicalRequest({ method, target, timestamp, bodyHashHex }) {

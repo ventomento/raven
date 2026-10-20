@@ -149,7 +149,7 @@ export class FakeRelays {
             method: options.method ?? "GET",
             cursor: Number(parsed.searchParams.get("cursor")),
             signed: "x-smerp-signature" in (options.headers ?? {}),
-            authorization: options.headers?.authorization,
+            token: options.headers?.["x-smerp-token"],
             headers: options.headers ?? {},
             body: options.body,
             url,

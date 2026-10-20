@@ -32,7 +32,7 @@ from reading the code.
   - Client: dedup on `(uuid, sender, recipient)` or a hash of the full envelope.
   - Relays: a uuid is a duplicate only if the bytes are identical.
   Needs smerp_rfc changes.
-  Done (smep v3): the uuid is gone; an envelope's hash is sha256 of its bytes
+  Done: the uuid is gone; an envelope's hash is sha256 of its bytes
   (`envelopeHash`, smep_rfc section 6), and clients and relays dedup only on it.
 
 ## Medium
@@ -73,7 +73,7 @@ from reading the code.
   Done, set after the caller's options so they cannot override it.
 
 - [ ] **8. Insecure relay URLs accepted.**
-  `relaysPut` accepts `http://` and then sends the bearer token in cleartext.
+  `relaysPut` accepts `http://` and then sends the access token in cleartext.
   Fix: require `https:` except for localhost.
 
 - [ ] **9. Messages stored unencrypted; keys extractable.**

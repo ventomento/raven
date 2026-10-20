@@ -1,5 +1,5 @@
 export const EnvelopeLayout = Object.freeze({
-  VERSION: 0x03,
+  VERSION: 0x01,
   HEADER_SIZE: 78,
   MAX_SIZE: 4 * 1024 * 1024,
 

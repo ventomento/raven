@@ -121,23 +121,30 @@ test("a POST signed by neither sender nor recipient is rejected", async (t) => {
     assert.equal((await post(server, base, bob, envelope)).status, 200);
 });
 
-test("a relay with tokens requires a valid bearer token on GET and POST", async (t) => {
+test("a relay with tokens requires a valid x-smerp-token on GET and POST", async (t) => {
 
     const { server, base } = await startServer(t, { tokens: new Set(["secret"]) });
     const [alice, bob] = await Promise.all([1, 2].map(() => PrivateIdentity.generate()));
     const envelope = await envelopeFrom(alice, bob);
 
-    for (const headers of [{}, { authorization: "Bearer wrong" }, { authorization: "secret" }]) {
+    const refused = [
+        {},
+        { "x-smerp-token": "wrong" },
+        { "x-smerp-token": "Bearer secret" },
+        { authorization: "Bearer secret" },
+    ];
+
+    for (const headers of refused) {
         assert.equal((await get(server, base, alice, 0, headers)).status, 401);
         assert.equal((await post(server, base, alice, envelope, headers)).status, 401);
     }
 
-    const ok = { authorization: "Bearer secret" };
+    const ok = { "x-smerp-token": "secret" };
     assert.equal((await post(server, base, alice, envelope, ok)).status, 200);
     assert.equal((await get(server, base, alice, 0, ok)).status, 200);
 });
 
-test("every response carries the relay pkh, and rotateKey changes it", async (t) => {
+test("every response carries the relay pkh and no-store, and rotateKey changes the pkh", async (t) => {
 
     const { server, base } = await startServer(t);
     const relayPkh = await server.relayPkh();
@@ -147,6 +154,7 @@ test("every response carries the relay pkh, and rotateKey changes it", async (t)
     for (const path of ["/", "/nope", "/envelopes?cursor=0"]) {
         const res = await fetch(`${base}${path}`);
         assert.equal(res.headers.get("x-smerp-relay-pkh"), relayPkh, path);
+        assert.equal(res.headers.get("cache-control"), "no-store", path);
     }
 
     const rotated = await server.rotateKey();

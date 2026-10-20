@@ -17,15 +17,9 @@ export function openDatabase(databaseName) {
       reject(request.error);
     };
 
-    request.onupgradeneeded = (event) => {
+    request.onupgradeneeded = () => {
 
       const db = request.result;
-
-      if (event.oldVersion < 3) {
-        for (const name of [...db.objectStoreNames]) {
-          db.deleteObjectStore(name);
-        }
-      }
 
       if (
         !db.objectStoreNames.contains(
@@ -84,7 +78,16 @@ export function openDatabase(databaseName) {
     };
 
     request.onsuccess = () => {
-      resolve(request.result);
+
+      const db = request.result;
+
+      // Another tab deleting or upgrading the database waits until every
+      // connection closes; close ours instead of holding it up.
+      db.onversionchange = () => {
+        db.close();
+      };
+
+      resolve(db);
     };
   });
 }

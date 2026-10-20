@@ -65,7 +65,7 @@ export class RequestBuilder {
                 headers: {
                     ...headers,
                     ...auth,
-                    ...(this.relayToken && { authorization: `Bearer ${this.relayToken}` }),
+                    ...(this.relayToken && { [AuthHeaders.token]: this.relayToken }),
                 },
                 ...(body !== undefined && { body }),
             },

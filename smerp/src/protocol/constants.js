@@ -5,6 +5,7 @@ export const SmerpHeaders = Object.freeze({
     relayPkh: "x-smerp-relay-pkh",
     unauthorized: "x-smerp-unauthorized",
     retryAfter: "retry-after",
+    cacheControl: "cache-control",
 });
 
 export const Status = Object.freeze({

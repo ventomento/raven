@@ -1,4 +1,4 @@
-SMERP Authentication Protocol v1
+SMERP Authentication Protocol, Version 1
 
 1. Overview
 ===========
@@ -171,11 +171,14 @@ configuration in the client.
 
 The client sends the token on every request to that relay:
 
-    Authorization: Bearer <token>
+    x-smerp-token: <token>
 
-The token is opaque to the client. It is sent only to the relay that
-issued it and is never forwarded to other relays. It is not covered by
-the signature; TLS SHOULD protect it.
+The token is opaque to the client and sent as is, with no scheme
+prefix. It is sent only to the relay that issued it and is never
+forwarded to other relays. It is not covered by the signature; TLS
+SHOULD protect it. The relay MUST treat the header as a secret: unlike
+Authorization, proxies and logging tools do not redact it by default,
+so the relay MUST NOT log it.
 
 A relay MAY bind a token to the signer's pkh, so that a leaked token is
 useless without the matching private key.
@@ -216,7 +219,7 @@ by clients. The client treats any 401 as a failed request to that
 relay, except one that taught a new key (section 7).
 
 Relays that serve browser clients MUST allow the x-smerp-pkh,
-x-smerp-timestamp, x-smerp-signature and Authorization request headers
+x-smerp-timestamp, x-smerp-signature and x-smerp-token request headers
 and expose x-smerp-relay-pkh and x-smerp-unauthorized via CORS.
 
 

@@ -1,9 +1,10 @@
 import { h, replaceChildren, downloadBytes } from "../dom.js";
 
 export class IdentityView {
-  constructor({ client, identity }) {
+  constructor({ client, identity, shell }) {
     this.client = client;
     this.identity = identity;
+    this.shell = shell;
   }
 
   mount(container) {
@@ -68,7 +69,58 @@ export class IdentityView {
           "what the relays still hold, and older messages may be missing there. " +
           "Messages shown here are stored only in this browser; clearing its " +
           "site data deletes them.")
-      )
+      ),
+      this.deleteDataCard()
+    );
+  }
+
+  deleteDataCard() {
+
+    const confirmRow = h("div", { class: "form-row", hidden: true },
+      h("button", {
+        class: "danger",
+        type: "button",
+        onclick: (event) => {
+          event.currentTarget.disabled = true;
+          event.currentTarget.textContent = "Deleting…";
+          void this.shell.deleteBrowserData();
+        },
+      }, "Yes, delete everything"),
+      h("button", {
+        class: "ghost",
+        type: "button",
+        onclick: () => {
+          confirmRow.hidden = true;
+          startRow.hidden = false;
+        },
+      }, "Cancel")
+    );
+
+    const startRow = h("div", { class: "form-row" },
+      h("button", {
+        class: "ghost danger",
+        type: "button",
+        onclick: () => {
+          startRow.hidden = true;
+          confirmRow.hidden = false;
+        },
+      }, "Delete local data")
+    );
+
+    return h("section", { class: "card" },
+      h("div", { class: "label" }, "Delete local data"),
+      h("p", { class: "muted small" },
+        "Deletes everything this site keeps in this browser's IndexedDB: the " +
+        "messages, chats and relay settings of every identity used here, not " +
+        "just this one."),
+      h("p", { class: "muted small" },
+        h("strong", {}, "This can't be undone."),
+        " Messages are fetched again only from relays that still hold them, and " +
+        "relays usually delete messages after a while. Unless an archive relay " +
+        "keeps your messages, the ones you already downloaded may be gone for good. " +
+        "Before deleting, copy any messages and download any files you want to keep."),
+      startRow,
+      confirmRow
     );
   }
 

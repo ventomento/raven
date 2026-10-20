@@ -14,7 +14,7 @@
 import http from "node:http";
 import { bytesToHex } from "../../../smep/src/encoding/hex.js";
 import { PrivateIdentity, readEnvelope, envelopeHash } from "../../../smep/src/index.js";
-import { RequestVerifier } from "../auth/request-signer.js";
+import { AuthHeaders, RequestVerifier } from "../auth/request-signer.js";
 import { SmerpHeaders, Status, MAX_ENVELOPE_BYTES, MAX_BATCH_BYTES, encodeBatch } from "../protocol/index.js";
 import { StorageServer } from "./storage-server.js";
 import { setCorsHeaders, send, readBody, parseCursorParam } from "./http-helpers.js";
@@ -76,8 +76,10 @@ export class SmerpServer {
 
     async handleRequest(req, res) {
         try {
-            // Every response carries the relay key (smerp_rfc section 1).
+            // Every response carries the relay key and forbids caching
+            // (smerp_rfc section 1).
             res.setHeader(SmerpHeaders.relayPkh, await this.relayPkh());
+            res.setHeader(SmerpHeaders.cacheControl, "no-store");
             setCorsHeaders(res);
 
             if (req.method === "OPTIONS") {
@@ -222,9 +224,7 @@ export class SmerpServer {
             return true;
         }
 
-        const match = /^Bearer (.+)$/.exec(req.headers.authorization ?? "");
-
-        return match !== null && this.tokens.has(match[1]);
+        return this.tokens.has(req.headers[AuthHeaders.token]);
     }
 
     sendUnauthorized(res, reason) {
