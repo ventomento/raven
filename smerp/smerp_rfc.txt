@@ -241,7 +241,8 @@ Rules for a client that pushes:
   (seconds) before pushing again.
 - Never log the topic.
 - SHOULD limit pushes per peer (a cooldown), so an active conversation
-  does not notify on every message.
+  does not notify on every message. The reference client pushes to a
+  peer at most once per 5 minutes, counting failed pushes.
 
 Both peers must use the same ntfy server for a push to reach the
 subscriber; the default is https://ntfy.sh. A topic reveals only when

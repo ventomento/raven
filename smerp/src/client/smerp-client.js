@@ -48,6 +48,7 @@ const NTFY_PUSH = Object.freeze({
     timeout: 5000,
     maxBytes: 64 * 1024,
     defaultPauseMs: 60 * 1000,
+    cooldownMs: 5 * 60 * 1000,
 });
 
 export class SmerpClient {
@@ -78,6 +79,7 @@ export class SmerpClient {
         this.notify = notify;
         this.ntfyUrl = parseNtfyUrl(ntfyUrl);
         this.ntfyPausedUntil = 0;
+        this.ntfyLastPushAt = new Map();
 
         this.eventBus = new EventBus();
         this.status = ClientStatus.STOPPED;
@@ -248,7 +250,10 @@ export class SmerpClient {
     // Pushes "something arrived" to the recipient's ntfy topic. Best effort:
     // never awaited by send(), never throws. Only when notify is on, never for
     // a note to self, and only to a peer we have received from (a cold first
-    // contact never gets a push). The topic is a secret: it is never logged.
+    // contact never gets a push), and at most once per cooldown per peer, so an
+    // active conversation doesn't buzz on every message. The cooldown starts
+    // when a push is tried, failed or not. The topic is a secret: it is never
+    // logged.
     async pushNotification(recipientPublicKeyHex) {
 
         try {
@@ -264,6 +269,16 @@ export class SmerpClient {
             if (!conversation?.hasInbound) {
                 return;
             }
+
+            // No await between this check and the set, so two quick sends can't
+            // both pass it.
+            const now = this.clock.now();
+
+            if (now - (this.ntfyLastPushAt.get(recipient) ?? -Infinity) < NTFY_PUSH.cooldownMs) {
+                return;
+            }
+
+            this.ntfyLastPushAt.set(recipient, now);
 
             const topic = await notifyTopic(this.identity, this.publicKeyHex, recipient);
 

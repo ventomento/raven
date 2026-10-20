@@ -503,6 +503,7 @@ test("send: does not wait for a sync in progress", async (t) => {
 });
 
 const NTFY = "http://ntfy.test";
+const COOLDOWN = 5 * 60 * 1000;
 
 const pushes = (relays) => relays.requests.filter(r => r.url.startsWith(`${NTFY}/`));
 
@@ -581,7 +582,7 @@ test("notify: no push when no relay accepted the envelope", async (t) => {
 
 test("notify: a refused, failing or hanging push never affects send", async (t) => {
 
-    const { client, relays, bob } = await startNotifyClient(t);
+    const { client, clock, relays, bob } = await startNotifyClient(t);
     const gate = deferred();
 
     const answers = [
@@ -595,6 +596,7 @@ test("notify: a refused, failing or hanging push never affects send", async (t) 
         const sent = await client.send(bob.publicKeyHex, "hi");
         assert.deepEqual(sent.delivered.sort(), [A, B]);
         await pushed(relays, i);
+        clock.advance(COOLDOWN);
     }
 
     gate.resolve(null);
@@ -604,19 +606,51 @@ test("notify: a 429 pauses pushes for its Retry-After", async (t) => {
 
     const { client, clock, relays, bob } = await startNotifyClient(t);
 
-    relays.hook = (request) => request.url.startsWith(NTFY) ? { status: 429, headers: { "retry-after": "30" } } : null;
+    relays.hook = (request) => request.url.startsWith(NTFY) ? { status: 429, headers: { "retry-after": "600" } } : null;
     await client.send(bob.publicKeyHex, "1");
     await pushed(relays, 1);
     await settle();
 
     relays.hook = null;
+    clock.advance(COOLDOWN);
     await client.send(bob.publicKeyHex, "2");
     await settle();
-    assert.equal(pushes(relays).length, 1, "paused");
+    assert.equal(pushes(relays).length, 1, "paused past the cooldown");
 
-    clock.advance(30 * 1000);
+    clock.advance(600 * 1000 - COOLDOWN);
     await client.send(bob.publicKeyHex, "3");
     await pushed(relays, 2);
+});
+
+test("notify: at most one push per peer per 5 minutes, failed or not", async (t) => {
+
+    const { client, clock, relays, bob } = await startNotifyClient(t);
+    const carol = await identity();
+    await client.storage.conversationsPut({ publicKeyHex: carol.publicKeyHex, unreadCount: 0, hasInbound: true });
+
+    relays.hook = (request) => request.url.startsWith(NTFY) ? { status: 500 } : null;
+    await Promise.all([client.send(bob.publicKeyHex, "1"), client.send(bob.publicKeyHex, "2")]);
+    await pushed(relays, 1);
+
+    relays.hook = null;
+    await client.send(carol.publicKeyHex, "other peer");
+    await pushed(relays, 2);
+
+    clock.advance(COOLDOWN - 1);
+    await client.send(bob.publicKeyHex, "3");
+    await settle();
+    assert.equal(pushes(relays).length, 2, "still cooling down");
+
+    clock.advance(1);
+    await client.send(bob.publicKeyHex, "4");
+    await pushed(relays, 3);
+    await settle();
+
+    const topic = peer => notifyTopic(peer, client.publicKeyHex, peer.publicKeyHex);
+    assert.deepEqual(
+        pushes(relays).map(r => r.url),
+        [`${NTFY}/${await topic(bob)}`, `${NTFY}/${await topic(carol)}`, `${NTFY}/${await topic(bob)}`]
+    );
 });
 
 test("notify: options are checked, ntfyUrl loses trailing slashes", async () => {

@@ -1,8 +1,7 @@
 # Planned feature: phone notifications via ntfy
 
-Status: implemented, except the cooldown (see "When the sender pushes" and the open
-questions). The normative parts (derivation, push, rules) are in smerp_rfc section 7; this
-document keeps the reasoning.
+Status: implemented. The normative parts (derivation, push, rules) are in smerp_rfc
+section 7; this document keeps the reasoning.
 
 ## Goal
 
@@ -65,7 +64,8 @@ check), the client pushes if all of these hold:
 - notifications are on in this client (the `notify` constructor option, off by default),
 - the recipient is not ourselves (notes to self never push),
 - we have received at least one envelope from that peer (`hasInbound` on the conversation,
-  below).
+  below),
+- we haven't pushed to that peer in the last 5 minutes (the cooldown, below).
 
 The last rule means a cold first contact never pushes: only peers who have written to you
 get pushed to. That is spam reduction for honest clients and keeps unanswered contacts out
@@ -76,9 +76,15 @@ unsubscribing.
 The push is fire-and-forget: short timeout, no retry, failures logged (no topic in the
 log) and ignored. It never delays `send()` or makes it fail.
 
-Not yet: a cooldown. An active chat pushes on every message, which stacks notifications on
-iOS and spends the sender's daily budget. The likely next rule is "and no push to this
-peer in the last 5 minutes", possibly "unless the peer has replied since".
+The cooldown: at most one push per peer per 5 minutes; a send inside the window just
+doesn't push. Without it an active chat would push on every message, stacking
+notifications on iOS and spending the sender's daily budget. It is per peer, because a
+push to Alice shouldn't silence a message to Bob (different topics, usually different
+phones). It starts when a push is tried, failed or not, so a broken ntfy server isn't hit
+on every message, and check and update have no `await` between them, so two quick sends
+can't both pass. It is kept in memory: a reload resets it, which costs at most one extra
+notification. No "unless the peer replied since" exception: a peer who is replying is at a
+screen anyway.
 
 ### The push
 
@@ -245,4 +251,3 @@ relay. Dropped for the reasons under "Why the sender".
   device).
 - An "I'm listening" control envelope so a sender pushes only to peers who subscribed:
   less ntfy traffic and metadata, but it needs a content type the webui hides.
-- The cooldown rule (above).
