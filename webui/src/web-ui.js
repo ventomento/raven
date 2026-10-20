@@ -4,8 +4,7 @@ import { h } from "./dom.js";
 import { parsePublicKeyHex } from "./format.js";
 import { AppShell } from "./app-shell.js";
 import { browserSupport, UnsupportedBrowserError } from "./browser-support.js";
-
-const STYLESHEET_URL = new URL("./styles/webui.css", import.meta.url);
+import { WEBUI_CSS } from "./styles/webui.css.js";
 
 export class WebUi {
 
@@ -16,13 +15,11 @@ export class WebUi {
     recipientPublicKeyHex = null,
     relays = [],
     debug = false,
-    injectStylesheet = true,
   }) {
 
     insist(privateKeyHex, "string");
     insist(root, HTMLElement);
     insist(relays, Array);
-    insist(injectStylesheet, "boolean");
 
     this.privateKeyHex = privateKeyHex;
     this.root = root;
@@ -30,7 +27,6 @@ export class WebUi {
     this.recipientPublicKeyHex = recipientPublicKeyHex === null ? null : parseKey(recipientPublicKeyHex, "recipientPublicKeyHex");
     this.relays = relays.map(normalizeRelay);
     this.debug = debug;
-    this.injectStylesheet = injectStylesheet;
     this.client = null;
     this.shell = null;
     this.stylesheet = null;
@@ -57,17 +53,17 @@ export class WebUi {
     });
 
     try {
-      await Promise.all([client.start(), this.injectStylesheet && this.#loadStylesheet()]);
+      await client.start();
       await this.#seedRelays(client);
     }
     catch (error) {
       await client.stop();
-      this.stylesheet?.remove();
-      this.stylesheet = null;
       throw error;
     }
 
     this.client = client;
+    this.stylesheet = h("style", {}, WEBUI_CSS);
+    document.head.append(this.stylesheet);
     this.shell = new AppShell({
       client,
       identity,
@@ -101,19 +97,6 @@ export class WebUi {
         await client.relaysPut(relay);
       }
     }
-  }
-
-  #loadStylesheet() {
-
-    return new Promise(resolve => {
-      this.stylesheet = h("link", {
-        rel: "stylesheet",
-        href: STYLESHEET_URL.href,
-        onload: resolve,
-        onerror: resolve,
-      });
-      document.head.append(this.stylesheet);
-    });
   }
 }
 

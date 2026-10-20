@@ -1,3 +1,7 @@
+// The web UI's only stylesheet. WebUi injects it as a <style> on start and
+// removes it on stop. It is a String.raw template literal: never use a
+// backtick or ${ in it.
+export const WEBUI_CSS = String.raw`
 .webui {
   --bg: #f6f7f9;
   --surface: #ffffff;
@@ -469,3 +473,4 @@
   .webui .message { max-width: 92%; }
   .webui .tab { font-size: 0.9rem; }
 }
+`;
