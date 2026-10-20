@@ -220,7 +220,7 @@ Push:
     Title: raven
     X-Sequence-ID: raven
 
-    raven: new envelope received
+    New message
 
 The body says only that something arrived: no sender, hash or content.
 X-Sequence-ID lets ntfy clients replace the previous notification of

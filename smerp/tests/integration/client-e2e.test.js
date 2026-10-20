@@ -379,6 +379,6 @@ test("notify: a reply pushes once to the topic the peer subscribes to; a cold fi
         path: `/${await bob.notifyTopic(alice.publicKeyHex)}`,
         title: "raven",
         sequenceId: "raven",
-        body: "raven: new envelope received",
+        body: "New message",
     }]);
 });

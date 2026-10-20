@@ -39,6 +39,10 @@ export function openNotifyDialog({ container, topic, ntfyUrl, label, displayName
       h("span", { class: "muted" }, ". On iPhone, turn on \u201cUse another server\u201d and enter it.")
     ),
     h("p", { class: "muted small" }, "Works only if their client sends notifications."),
+    h("p", { class: "muted small" },
+      "You\u2019ll get at most one notification every 5 minutes from this conversation, " +
+      "even if more messages arrive."
+    ),
     h("form", { method: "dialog", class: "notify-actions" },
       h("button", { class: "primary", type: "submit", autofocus: true }, "Close")
     )

@@ -546,7 +546,7 @@ test("notify: one push per send to the pair's topic, however many relays took it
     assert.equal(push.method, "POST");
     assert.equal(push.url, `${NTFY}/${await notifyTopic(bob, client.publicKeyHex, bob.publicKeyHex)}`);
     assert.deepEqual(push.headers, { "Title": "raven", "X-Sequence-ID": "raven" });
-    assert.equal(push.body, "raven: new envelope received");
+    assert.equal(push.body, "New message");
     assert.equal(posts(relays, A).length, 1);
     assert.equal(posts(relays, B).length, 1);
 });

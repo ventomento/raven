@@ -8,7 +8,7 @@ section 7; this document keeps the reasoning.
 Get a notification on your phone when a peer sends you an envelope. The notification says
 only that something arrived:
 
-> raven: new envelope received
+> New message
 
 No sender name, no hash, no content. [ntfy](https://ntfy.sh) delivers it: the phone runs
 the ntfy app (Android or iOS) and subscribes to a topic; the **sending client** POSTs to
@@ -92,7 +92,7 @@ screen anyway.
 POST https://ntfy.sh/<topic>
 Title: raven
 X-Sequence-ID: raven
-body: raven: new envelope received
+body: New message
 ```
 
 `X-Sequence-ID` makes Android (and the web app) replace the previous notification of the

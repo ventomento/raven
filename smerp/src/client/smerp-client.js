@@ -44,7 +44,7 @@ const NOTIFY_FIELDS = Object.freeze([
 // It says only that something arrived.
 const NTFY_PUSH = Object.freeze({
     headers: Object.freeze({ "Title": "raven", "X-Sequence-ID": "raven" }),
-    body: "raven: new envelope received",
+    body: "New message",
     timeout: 5000,
     maxBytes: 64 * 1024,
     defaultPauseMs: 60 * 1000,
