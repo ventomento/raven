@@ -145,7 +145,7 @@ export class ThreadView {
       onclick: () => void this.#openNotify(),
     }, "Notify");
 
-    replaceChildren(this.head, back, avatar(this.publicKeyHex, label), title, notify, rename);
+    replaceChildren(this.head, back, avatar(this.publicKeyHex, label), title, rename, notify);
   }
 
   async #openNotify() {

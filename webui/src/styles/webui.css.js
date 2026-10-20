@@ -742,6 +742,7 @@ export const WEBUI_CSS = String.raw`
 
 .webui .notify-platform p {
   margin: 0;
+  text-align: center;
 }
 
 .webui .qr {
@@ -750,24 +751,6 @@ export const WEBUI_CSS = String.raw`
   height: 180px;
   border-radius: 4px;
   image-rendering: pixelated;
-}
-
-.webui .button-link {
-  padding: 7px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.webui .button-link:hover {
-  background: var(--surface);
-}
-
-.webui .button-link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
 }
 
 .webui .copy-row {
@@ -783,9 +766,11 @@ export const WEBUI_CSS = String.raw`
   font-size: 0.85rem;
 }
 
-.webui .notify-notes {
+.webui .notify-code {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin: var(--gap) 0;
-  padding-left: 1.2em;
 }
 
 .webui .notify-actions {

@@ -3,10 +3,10 @@ import { ntfyAppLink, isDefaultNtfyServer } from "../notify-links.js";
 import { qrCode } from "./qr-code.js";
 import { copyButton } from "./copy-button.js";
 
-// The dialog for subscribing a phone to "peer -> me": everything for both
-// platforms at once, no guessing which device it is open on. Android
-// subscribes from a deep link; the iOS app has none, so iPhone gets the topic
-// as text to paste. Removes itself when closed. label names the peer in the
+// The dialog for subscribing a phone to "peer -> me": the topic (called "the
+// code" in the UI) to copy, then a QR code per platform, both always shown, no
+// guessing which device it is open on. Android's subscribes through a deep
+// link; the iOS app has none, so iPhone's holds the topic as text to paste. Removes itself when closed. label names the peer in the
 // text; displayName names the subscription in the Android app.
 export function openNotifyDialog({ container, topic, ntfyUrl, label, displayName }) {
 
@@ -16,36 +16,31 @@ export function openNotifyDialog({ container, topic, ntfyUrl, label, displayName
     h("h2", { id: "notify-dialog-title" }, "Phone notifications"),
     h("p", {},
       `Get a phone notification when ${label} messages you. `,
-      "Install the ntfy app, then scan the code for your phone."
+      "Install the ntfy app and subscribe to this code."
+    ),
+    h("div", { class: "notify-code" },
+      h("div", { class: "muted small" }, "Copy it and paste it into the ntfy app (tap +):"),
+      topicRow(topic)
     ),
     h("div", { class: "notify-platforms" },
       h("section", { class: "notify-platform" },
         h("h3", {}, "Android"),
-        qrCode(link, "QR code that subscribes the ntfy app"),
-        h("a", { class: "button-link", href: link }, "Open in ntfy"),
-        topicRow(topic)
+        qrCode(link, "QR code that opens the ntfy app and subscribes"),
+        h("p", { class: "muted small" }, "Scan with the camera to open ntfy and subscribe.")
       ),
       h("section", { class: "notify-platform" },
         h("h3", {}, "iPhone"),
-        qrCode(topic, "QR code of the topic"),
-        topicRow(topic),
-        h("p", { class: "muted small" },
-          "Scan and copy the text, or copy it here. In ntfy, tap +, paste it and subscribe. " +
-          "Allow notifications when asked, and rename the subscription after the contact."
-        )
+        qrCode(topic, "QR code of the code"),
+        h("p", { class: "muted small" }, "Scan with the camera to copy the code, then paste it into ntfy (tap +).")
       )
     ),
     !isDefaultNtfyServer(ntfyUrl) && h("p", { class: "small" },
       "Server: ", h("span", { class: "mono" }, ntfyUrl),
-      h("span", { class: "muted" }, ". On iPhone, turn on “Use another server” and enter it.")
+      h("span", { class: "muted" }, ". On iPhone, turn on \u201cUse another server\u201d and enter it.")
     ),
-    h("ul", { class: "muted small notify-notes" },
-      h("li", {}, "Works only if their client sends notifications."),
-      h("li", {}, "Anyone with this topic can see when this peer messages you. Keep it private."),
-      h("li", {}, "If notifications stop, delete the subscription in ntfy and add it again.")
-    ),
+    h("p", { class: "muted small" }, "Works only if their client sends notifications."),
     h("form", { method: "dialog", class: "notify-actions" },
-      h("button", { class: "primary", type: "submit" }, "Close")
+      h("button", { class: "primary", type: "submit", autofocus: true }, "Close")
     )
   );
 
@@ -67,7 +62,7 @@ function topicRow(topic) {
       class: "mono",
       value: topic,
       readOnly: true,
-      "aria-label": "Topic",
+      "aria-label": "Code",
       onfocus: (event) => event.target.select(),
     }),
     copyButton(() => topic)
