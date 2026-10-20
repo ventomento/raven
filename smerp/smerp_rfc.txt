@@ -186,7 +186,70 @@ Envelopes MUST be stored and forwarded byte-identical.
   of the backlog is fetched by the next sync.
 
 
-7. Security Notes
+7. Client Notifications (optional)
+==================================
+
+A sending client MAY push a phone notification through ntfy
+(https://ntfy.sh) when it sends. Relays take no part: they never open
+an outbound connection. The receiver opts in per conversation by
+subscribing to the topic below in the ntfy app.
+
+Topic. One per direction of a conversation, which only the two parties
+can derive:
+
+    shared = X25519(own private key, peer public key)
+    topic  = "raven-" || hex(SHA-256("smerp-ntfy-topic" || shared ||
+                                     recipient public key))[0..32]
+
+The label is the 16 ASCII bytes "smerp-ntfy-topic", the recipient key is
+its 32 raw bytes, and the result is the first 32 lowercase hex digits.
+There is no topic for a note to self.
+
+Test vector (private keys are the 32-byte scalars, before clamping):
+
+    alice private  4040404040404040404040404040404040404040404040404040404040404041
+    alice public   16cc47ba4376ea9de41e2e0d41d924292b54c74b2a9b76201b3aa51a6906654e
+    bob private    5050505050505050505050505050505050505050505050505050505050505051
+    bob public     f55fc0309085dc04138f57894ebd864fae33581c7c7a0bf4bd5bd2790a172165
+    alice -> bob   raven-7393d61a4b43bc37bd434fd736f061f4
+    bob -> alice   raven-21c3bb9c242c2d5ee31685d3a910898c
+
+Push:
+
+    POST <ntfy server>/<topic>
+    Title: raven
+    X-Sequence-ID: raven
+
+    raven: new envelope received
+
+The body says only that something arrived: no sender, hash or content.
+X-Sequence-ID lets ntfy clients replace the previous notification of
+the topic instead of stacking a new one.
+
+Rules for a client that pushes:
+
+- Push only when the user turned it on; it is off by default.
+- Push only after at least one relay accepted the envelope.
+- Push once per envelope, however many relays accepted it.
+- Never push for a note to self.
+- Push only to a peer it has received an envelope from, so a first
+  message to a stranger never pushes.
+- Push to its own configured ntfy server, never to one a peer names: a
+  peer-chosen server would learn the sender's IP address.
+- Treat the push as best effort: a short timeout, no retry, and never
+  fail or delay the send because of it. On 429, wait for Retry-After
+  (seconds) before pushing again.
+- Never log the topic.
+- SHOULD limit pushes per peer (a cooldown), so an active conversation
+  does not notify on every message.
+
+Both peers must use the same ntfy server for a push to reach the
+subscriber; the default is https://ntfy.sh. A topic reveals only when
+one peer sends to the other, but the ntfy server sees the sender's IP
+address publishing to it and the subscriber's phone receiving it.
+
+
+8. Security Notes
 =================
 
 - Relays see sender, recipient, timestamp, size and timing.

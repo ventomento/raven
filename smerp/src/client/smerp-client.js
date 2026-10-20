@@ -40,8 +40,8 @@ const NOTIFY_FIELDS = Object.freeze([
     "lastFailureReason",
 ]);
 
-// The phone notification a sender pushes to ntfy (planned_feature.md,
-// smerp_rfc "Client notifications"). It says only that something arrived.
+// The phone notification a sender pushes to ntfy (smerp_rfc section 7).
+// It says only that something arrived.
 const NTFY_PUSH = Object.freeze({
     headers: Object.freeze({ "Title": "raven", "X-Sequence-ID": "raven" }),
     body: "raven: new envelope received",

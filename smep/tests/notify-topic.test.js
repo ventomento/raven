@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { notifyTopic } from "../src/protocol/notify-topic.js";
 import { PrivateIdentity } from "../src/identity/identity.js";
 
-// The test vector in smerp_rfc ("Client notifications"), cross-checked with an
+// The test vector in smerp_rfc section 7, cross-checked with an
 // independent RFC 7748 implementation.
 const VECTOR = {
   alicePrivate: "40".repeat(31) + "41",

@@ -1,6 +1,8 @@
 # Planned feature: phone notifications via ntfy
 
-Status: planned, not implemented.
+Status: implemented, except the cooldown (see "When the sender pushes" and the open
+questions). The normative parts (derivation, push, rules) are in smerp_rfc section 7; this
+document keeps the reasoning.
 
 ## Goal
 
