@@ -49,3 +49,9 @@ export function parsePublicKeyHex(value) {
   const hex = value.trim().replace(/^0x/i, "").toLowerCase();
   return /^[0-9a-f]{64}$/.test(hex) ? hex : null;
 }
+
+// A stable hue (0-359) for a peer's avatar, so the same key always gets the
+// same color.
+export function peerHue(publicKeyHex) {
+  return parseInt(publicKeyHex.slice(0, 6), 16) % 360;
+}

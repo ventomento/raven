@@ -10,32 +10,37 @@
       min-height: 100vh;
       display: grid;
       place-items: center;
-      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      background: #f6f7f9;
-      color: #1b1f24;
-    }
-    @media (prefers-color-scheme: dark) {
-      body { background: #0f1216; color: #e6e8eb; color-scheme: dark; }
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #3b4352;
+      color: #eef2f7;
+      color-scheme: dark;
     }
     form {
-      width: min(440px, calc(100% - 32px));
+      width: min(400px, calc(100% - 32px));
       display: flex;
       flex-direction: column;
       gap: 10px;
+      padding: 28px 24px;
+      border: 1px solid #4c5464;
+      border-radius: 12px;
+      background: #454e5e;
+      box-shadow: 0 1px 2px rgb(10 14 22 / 0.25), 0 4px 14px rgb(10 14 22 / 0.12);
     }
+    h1 { margin: 0 0 8px; font-size: 1.4rem; letter-spacing: -0.01em; }
     input, button {
       font: inherit;
       padding: 10px 12px;
-      border-radius: 10px;
-      border: 1px solid #8884;
-      background: transparent;
+      border-radius: 8px;
+      border: 1px solid #565f70;
+      background: #4d5667;
       color: inherit;
     }
-    button { cursor: pointer; }
-    button:disabled { cursor: not-allowed; opacity: 0.5; }
-    button[type="submit"] { background: #2f6fec; border-color: #2f6fec; color: #fff; font-weight: 600; }
-    .or { text-align: center; opacity: 0.6; }
-    .error { color: #c93c37; min-height: 1.4em; }
+    button { cursor: pointer; font-weight: 500; }
+    button:disabled { cursor: not-allowed; opacity: 0.55; }
+    button[type="submit"] { background: #82b4ff; border-color: #82b4ff; color: #0f1b2d; font-weight: 650; }
+    button:focus-visible { outline: 2px solid #82b4ff; outline-offset: 2px; }
+    .or { text-align: center; color: #c4ccd8; font-size: 0.85rem; }
+    .error { color: #ffb1a9; min-height: 1.5em; }
   </style>
 </head>
 <body>

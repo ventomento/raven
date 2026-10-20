@@ -1,6 +1,7 @@
 import { EventTypes } from "../../../index.js";
 import { h, replaceChildren, perFrame } from "../dom.js";
 import { shortHex, peerLabel, formatTime } from "../format.js";
+import { avatar } from "../components/avatar.js";
 
 export class ConversationsView {
 
@@ -62,6 +63,7 @@ export class ConversationsView {
         title: publicKeyHex,
         onclick: () => this.shell.openThread(publicKeyHex),
       },
+        avatar(publicKeyHex, label),
         label
           ? h("span", { class: "row-main" },
               h("span", { class: "row-primary" }, label),

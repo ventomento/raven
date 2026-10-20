@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { shortHex, peerLabel, formatTime, formatBytes, parsePublicKeyHex } from "../../src/format.js";
+import { shortHex, peerLabel, formatTime, formatBytes, parsePublicKeyHex, peerHue } from "../../src/format.js";
 
 test("shortHex: shortens long hex, keeps head and tail", () => {
   const hex = "0123456789abcdef0123456789abcdef";
@@ -50,4 +50,12 @@ test("parsePublicKeyHex: normalizes prefix, case and whitespace", () => {
 test("parsePublicKeyHex: rejects wrong length or non-hex", () => {
   assert.equal(parsePublicKeyHex("ab".repeat(31)), null);
   assert.equal(parsePublicKeyHex("zz".repeat(32)), null);
+});
+
+test("peerHue: a stable hue in 0-359 from the key", () => {
+  const key = "a".repeat(64);
+  assert.equal(peerHue(key), peerHue(key));
+  assert.equal(peerHue("000000" + "f".repeat(58)), 0);
+  assert.equal(peerHue("000168" + "0".repeat(58)), 0);
+  assert.equal(peerHue("000167" + "0".repeat(58)), 359);
 });

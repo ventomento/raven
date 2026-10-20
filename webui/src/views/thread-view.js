@@ -3,6 +3,7 @@ import { h, replaceChildren } from "../dom.js";
 import { shortHex, peerLabel, formatTime } from "../format.js";
 import { ComposeForm } from "../components/compose-form.js";
 import { envelopeContent } from "../components/envelope-content.js";
+import { avatar } from "../components/avatar.js";
 
 const PAGE_SIZE = 50;
 
@@ -130,7 +131,7 @@ export class ThreadView {
       onclick: () => this.#startRename(),
     }, "Rename");
 
-    replaceChildren(this.head, back, title, rename);
+    replaceChildren(this.head, back, avatar(this.publicKeyHex, label), title, rename);
   }
 
   #startRename() {
