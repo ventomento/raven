@@ -38,6 +38,16 @@ export const WEBUI_CSS = String.raw`
   -webkit-text-size-adjust: 100%;
 }
 
+/* The page scrolls on the root element, outside .webui. Reserve the
+   scrollbar's space always, so views taller than the viewport (Relays,
+   Identity) don't shift sideways when the scrollbar appears, and give that
+   scrollbar the theme's dark controls. */
+:root:has(.webui) {
+  scrollbar-gutter: stable;
+  color-scheme: dark;
+  background: #3b4352; /* --bg, which is defined on .webui only */
+}
+
 .webui *,
 .webui *::before,
 .webui *::after {

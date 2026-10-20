@@ -14,7 +14,7 @@ export class ComposeForm {
     this.recipientInput = recipientPublicKeyHex ? null : h("input", {
       class: "mono",
       type: "text",
-      placeholder: "Recipient public key (hex)",
+      placeholder: "Recipient address",
       autocomplete: "off",
       required: true,
     });
