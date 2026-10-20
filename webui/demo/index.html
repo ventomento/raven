@@ -40,6 +40,16 @@
     button[type="submit"] { background: #82b4ff; border-color: #82b4ff; color: #0f1b2d; font-weight: 650; }
     button:focus-visible { outline: 2px solid #82b4ff; outline-offset: 2px; }
     .or { text-align: center; color: #c4ccd8; font-size: 0.85rem; }
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 6px;
+      color: #c4ccd8;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .toggle input { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: #82b4ff; }
     .error { color: #ffb1a9; min-height: 1.5em; }
   </style>
 </head>
@@ -51,6 +61,10 @@
     <button type="submit">Open key file</button>
     <div class="or">or</div>
     <button id="generate" type="button">Generate new identity</button>
+    <label class="toggle">
+      <input id="notify" type="checkbox">
+      Send phone notifications (ntfy)
+    </label>
     <div class="error" id="error" role="alert"></div>
   </form>
 
@@ -70,7 +84,7 @@
       try {
         const params = new URLSearchParams(location.search);
         const debug = params.has("debug");
-        const notify = params.has("notify");
+        const notify = document.getElementById("notify").checked;
         const ntfyUrl = params.get("ntfy");
         await new WebUi({ privateKeyHex, relays, debug, notify, ntfyUrl }).start();
         document.getElementById("login-style").remove();
@@ -79,6 +93,9 @@
         errorLine.textContent = error.message;
       }
     }
+
+    // ?notify ticks the notifications box; ?ntfy=<url> picks another ntfy server.
+    document.getElementById("notify").checked = new URLSearchParams(location.search).has("notify");
 
     const keyFile = document.getElementById("key-file");
 
