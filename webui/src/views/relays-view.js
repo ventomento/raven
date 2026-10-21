@@ -1,6 +1,7 @@
 import { EventTypes } from "../../../index.js";
 import { h, replaceChildren, perFrame } from "../dom.js";
-import { formatTime } from "../format.js";
+import { formatTime, shortHex } from "../format.js";
+import { relayHealth } from "../relay-health.js";
 
 export class RelaysView {
 
@@ -8,6 +9,7 @@ export class RelaysView {
     this.client = client;
     this.list = null;
     this.tokenEditors = new Map();
+    this.openDiagnostics = new Set();
     this.scheduleRender = perFrame(() => void this.#render());
   }
 
@@ -62,15 +64,25 @@ export class RelaysView {
       }
     }
 
+    for (const relayUrl of this.openDiagnostics) {
+      if (!urls.has(relayUrl)) {
+        this.openDiagnostics.delete(relayUrl);
+      }
+    }
+
     replaceChildren(this.list, relays.map(relay => this.#row(relay)));
   }
 
   #row(relay) {
 
-    const failing = relay.failureCount > 0;
+    const health = relayHealth(relay);
+    const failing = health.state === "failing";
 
     return h("li", { class: `card relay${relay.disabled ? " disabled" : ""}` },
-      h("div", { class: "relay-url" }, relay.relayUrl),
+      h("div", { class: "relay-head" },
+        h("div", { class: "relay-url" }, relay.relayUrl),
+        h("span", { class: `pill ${health.state}` }, health.label)
+      ),
       h("dl", { class: "relay-meta small" },
         h("dt", { class: "muted" }, "Type"),
         h("dd", {}, relay.relayType),
@@ -79,15 +91,15 @@ export class RelaysView {
           ? h("dd", { class: "mono" }, maskToken(relay.relayToken))
           : h("dd", { class: "muted" }, "None")
       ),
-      h("div", { class: `small ${failing ? "warn" : "muted"}` },
-        relay.disabled
-          ? "Disabled"
-          : `Last sync ${formatTime(relay.lastSuccessAt)}` +
-            (failing ? ` · ${relay.failureCount} failure${relay.failureCount > 1 ? "s" : ""} in a row` : "")
+      !relay.disabled && h("div", { class: `small ${failing ? "warn" : "muted"}` },
+        `Last sync ${formatTime(relay.lastSuccessAt)}` +
+        (failing ? ` · ${relay.failureCount} failure${relay.failureCount > 1 ? "s" : ""} in a row` : "") +
+        (health.retryAt ? ` · next try after ${formatTime(health.retryAt)}` : "")
       ),
       failing && relay.lastFailureReason
         ? h("div", { class: "small warn" }, relay.lastFailureReason)
         : null,
+      this.#diagnostics(relay, health),
       this.#tokenEditor(relay),
       h("div", { class: "form-row" },
         h("button", {
@@ -100,6 +112,43 @@ export class RelaysView {
           type: "button",
           onclick: () => void this.client.relaysDelete({ relayUrl: relay.relayUrl }),
         }, "Remove")
+      )
+    );
+  }
+
+  // Everything the session stores about the relay, for judging its health.
+  // Collapsed by default; stays open across re-renders.
+  #diagnostics(relay, health) {
+
+    const { relayUrl } = relay;
+    const row = (term, value, valueClass = "") => [
+      h("dt", { class: "muted" }, term),
+      h("dd", { class: valueClass }, value),
+    ];
+
+    return h("details", {
+      class: "relay-details small",
+      open: this.openDiagnostics.has(relayUrl),
+      ontoggle: (event) => {
+        if (event.target.open) {
+          this.openDiagnostics.add(relayUrl);
+        }
+        else {
+          this.openDiagnostics.delete(relayUrl);
+        }
+      },
+    },
+      h("summary", {}, "Diagnostics"),
+      h("dl", { class: "relay-meta" },
+        row("Status", health.label),
+        row("Last success", formatTime(relay.lastSuccessAt)),
+        row("Last failure", formatTime(relay.lastFailureAt)),
+        row("Failures in a row", String(relay.failureCount ?? 0)),
+        row("Current error", relay.lastFailureReason ?? "None", relay.lastFailureReason ? "warn" : "muted"),
+        row("Next try", health.retryAt ? `after ${formatTime(health.retryAt)}` : relay.disabled ? "Never (disabled)" : "Next sync"),
+        row("Relay key", relay.relayPkh ? shortHex(relay.relayPkh, 12, 6) : "Not learned yet", relay.relayPkh ? "mono" : "muted"),
+        row("Epoch", relay.epoch ?? "None yet", relay.epoch ? "mono" : "muted"),
+        row("Cursor", String(relay.cursor ?? 0), "mono")
       )
     );
   }

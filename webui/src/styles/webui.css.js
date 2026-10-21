@@ -575,10 +575,35 @@ export const WEBUI_CSS = String.raw`
   overflow-wrap: anywhere;
 }
 
-.webui .token-editor summary {
+.webui .relay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
+.webui .pill {
+  flex: none;
+  padding: 1px 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.webui .pill.ok { color: var(--ok); }
+.webui .pill.failing { color: var(--warn); }
+
+.webui .token-editor summary,
+.webui .relay-details summary {
   width: fit-content;
   cursor: pointer;
   color: var(--accent-text);
+}
+
+.webui .relay-details .relay-meta {
+  margin-top: 6px;
 }
 
 .webui .token-editor form {
