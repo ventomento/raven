@@ -365,6 +365,7 @@ test("state is restored from the stored relay record, and the token is sent", as
     const clock = new VirtualClock();
     const stored = {
         cursor: 17,
+        epoch: "e1",
         relayPkh: RELAY_PKH,
         ...failedLongAgo(clock, 3),
         lastSuccessAt: 12,
@@ -388,12 +389,83 @@ test("a new relay record starts at cursor 0 with no key and clean health", async
 
     assert.deepEqual(ctx.session.state(), {
         cursor: 0,
+        epoch: null,
         relayPkh: null,
         failureCount: 0,
         lastSuccessAt: null,
         lastFailureAt: null,
         lastFailureReason: null,
     });
+});
+
+test("epoch: a first one is stored and the response used as usual", async () => {
+
+    const ctx = await setup({ relay: { cursor: 4 }, respond: () => batch(6, [bytes(1)], { "x-smerp-epoch": "e1" }) });
+
+    assert.equal(await ctx.session.step(), true);
+
+    assert.equal(ctx.session.epoch, "e1");
+    assert.equal(ctx.session.cursor, 6);
+    assert.equal(ctx.consumed.length, 1);
+    assert.equal(ctx.saved.at(-1).epoch, "e1");
+});
+
+test("epoch: a change resets the cursor to 0, ignores that response, and fetches again", async () => {
+
+    const ctx = await setup({
+        relay: { cursor: 500, epoch: "e1" },
+        respond: () => batch(503, [bytes(9)], { "x-smerp-epoch": "e2" }),
+    });
+
+    assert.equal(await ctx.session.step(), true, "more to do: refetch");
+
+    assert.equal(ctx.session.cursor, 0);
+    assert.equal(ctx.session.epoch, "e2");
+    assert.deepEqual(ctx.consumed, [], "the old cursor's answer is not consumed");
+    assert.equal(ctx.session.failureCount, 0, "not the relay's failure");
+    assert.equal(ctx.saved.at(-1).cursor, 0, "saved");
+    assert.equal(ctx.saved.at(-1).epoch, "e2", "saved");
+
+    ctx.respond = () => batch(2, [bytes(1), bytes(2)], { "x-smerp-epoch": "e2" });
+    ctx.clock.advance(1000);
+
+    assert.equal(await ctx.session.step(), true);
+    assert.equal(ctx.requests.at(-1).url, `${RELAY_URL}/envelopes?cursor=0`);
+    assert.equal(ctx.session.cursor, 2);
+    assert.equal(ctx.consumed.length, 1);
+});
+
+test("epoch: a change is noticed on any status, and a new relay key is kept with it", async () => {
+
+    for (const response of [noContent({ "x-smerp-epoch": "e2" }), status(500, { "x-smerp-epoch": "e2" })]) {
+
+        const ctx = await setup({ relay: { cursor: 9, epoch: "e1" }, respond: () => response });
+
+        assert.equal(await ctx.session.step(), true);
+        assert.equal(ctx.session.cursor, 0);
+        assert.equal(ctx.session.failureCount, 0);
+    }
+
+    const ctx = await setup({
+        relay: { cursor: 9, epoch: "e1", relayPkh: RELAY_PKH },
+        respond: () => status(401, { "x-smerp-epoch": "e2", "x-smerp-relay-pkh": OTHER_PKH }),
+    });
+
+    assert.equal(await ctx.session.step(), true);
+    assert.equal(ctx.session.relayPkh, OTHER_PKH);
+    assert.equal(ctx.session.cursor, 0);
+});
+
+test("epoch: a missing or malformed one changes nothing", async () => {
+
+    for (const headers of [{}, { "x-smerp-epoch": "" }, { "x-smerp-epoch": "has space" }, { "x-smerp-epoch": "x".repeat(65) }]) {
+
+        const ctx = await setup({ relay: { cursor: 4, epoch: "e1" }, respond: () => batch(6, [bytes(1)], headers) });
+
+        assert.equal(await ctx.session.step(), true);
+        assert.equal(ctx.session.epoch, "e1");
+        assert.equal(ctx.session.cursor, 6);
+    }
 });
 
 test("the constructor insists on its dependencies", async () => {

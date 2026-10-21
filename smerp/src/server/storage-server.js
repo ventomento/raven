@@ -1,13 +1,18 @@
 import { insist } from "../../../smep/src/util/util.js";
+import { randomBytes, bytesToHex } from "../../../smep/src/index.js";
 
 // In-memory, append-only envelope store for the mock relay (smerp-server.js).
 // It never deletes, so the mock behaves like an "archive" relay (smerp_rfc
 // section 2). An envelope is held only if its hash (sha256 of the complete
 // bytes) is, never because a header field matches (smerp_rfc section 5).
-// Record ids start at 1 and serve as the download cursor.
+// Record ids start at 1 and serve as the download cursor. The epoch names
+// this cursor space: new storage starts the ids over, so it gets a new epoch
+// (smerp_rfc section 4). Being in memory, that is every restart.
 export class StorageServer {
 
-    constructor() {
+    constructor({ epoch = bytesToHex(randomBytes(16)) } = {}) {
+        insist(epoch, "string");
+        this.epoch = epoch;
         this.records = [];
         this.idsByHash = new Map();
         this.nextId = 1;

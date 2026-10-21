@@ -91,7 +91,9 @@ also receive their own sent envelopes.
 
     200   body: a batch of one or more envelopes (below)
           x-smerp-cursor: <cursor after the last envelope in the batch>
+          x-smerp-epoch: <epoch>
     204   no envelope after cursor
+          x-smerp-epoch: <epoch>
     401   refused
     429   throttled
 
@@ -123,14 +125,41 @@ gets 204.
 A cursor that is missing, not an integer, or not greater than the
 requested one is a relay failure; the client keeps its cursor.
 
+The epoch names the relay's cursor space: an opaque string of 1 to 64
+characters from A-Z, a-z, 0-9, "-" and "_". Every response to GET
+/envelopes MUST carry it; a relay MAY send it on every response.
+
+- A relay MUST change its epoch whenever its cursors could start over
+  or go backwards: its storage was wiped, restored from an older
+  backup, or replaced (for example a new server under the same URL).
+  Without that, a client would keep a cursor beyond every envelope the
+  relay now holds and silently miss envelopes until the new cursors
+  passed it.
+- A relay MUST NOT change its epoch otherwise: every client then
+  fetches its whole mailbox again.
+- So a relay that keeps envelopes only in memory needs a new epoch on
+  every start, and a relay with persistent storage stores its epoch
+  with the envelopes. A random value made when the storage is created
+  does both.
+
+The client stores the epoch per relay, with the cursor. A response
+whose epoch differs from the stored one answered a cursor that no
+longer means anything: the client ignores it, sets its cursor to 0,
+stores the new epoch and fetches again. That is not a relay failure.
+Deduplication by envelope hash (section 6) makes the refetch safe. The
+first epoch a client sees is just stored. An epoch that is missing or
+malformed changes nothing; a relay that sends none gives its clients no
+way to notice a reset.
+
 A body whose framing is broken (a length that runs past the end of the
 body, a trailing partial length, or no frame at all) is a relay
 failure. If the cursor is valid, the client processes the frames before
 the break and advances the cursor, so a broken batch cannot stall the
 mailbox.
 
-Relays that serve browser clients MUST expose x-smerp-cursor via CORS,
-in addition to the headers listed in auth_rfc section 9.
+Relays that serve browser clients MUST expose x-smerp-cursor and
+x-smerp-epoch via CORS, in addition to the headers listed in auth_rfc
+section 9.
 
 
 5. Federation
@@ -166,6 +195,9 @@ Envelopes MUST be stored and forwarded byte-identical.
   cursor past it. Only a local failure (storage) keeps the cursor, so
   the batch is fetched again later.
 - Do not create or upload an envelope larger than 4 MiB.
+- Store each relay's epoch with its cursor. When a response carries a
+  different epoch, ignore that response and fetch again from cursor 0
+  (section 4).
 - On 429, wait for Retry-After (seconds) before contacting
   that relay again.
 - Sign every request and learn the relay key from x-smerp-relay-pkh; a

@@ -7,6 +7,7 @@ import {
     Status,
     decodeBatch,
     parseCursor,
+    parseEpoch,
 } from "../protocol/index.js";
 import { RequestBuilder } from "./request-builder.js";
 
@@ -61,6 +62,7 @@ export class RelaySession {
         });
 
         this.cursor = relay.cursor ?? 0;
+        this.epoch = relay.epoch ?? null;
         this.relayPkh = relay.relayPkh ?? null;
         this.failureCount = relay.failureCount ?? 0;
         this.lastSuccessAt = relay.lastSuccessAt ?? null;
@@ -72,6 +74,7 @@ export class RelaySession {
 
         return {
             cursor: this.cursor,
+            epoch: this.epoch,
             relayPkh: this.relayPkh,
             failureCount: this.failureCount,
             lastSuccessAt: this.lastSuccessAt,
@@ -119,6 +122,10 @@ export class RelaySession {
         }
 
         const relayKeyChanged = this.adoptRelayPkh(response);
+
+        if (this.adoptEpoch(response)) {
+            return true;
+        }
 
         switch (response.status) {
 
@@ -242,6 +249,41 @@ export class RelaySession {
         }
 
         return changed;
+    }
+
+    // A new epoch means the relay's cursors started over (its storage was
+    // reset), so ours points into a cursor space that no longer exists: start
+    // again from 0, ignoring this response, which answered the old cursor.
+    // Dedup by hash makes the refetch safe. Returns true on such a reset. A
+    // first epoch is only stored; a missing one changes nothing.
+    adoptEpoch(response) {
+
+        const value = response.headers?.[SmerpHeaders.epoch];
+        const epoch = parseEpoch(value);
+
+        if (!epoch) {
+            if (value !== undefined) {
+                this.logger.warn("invalid relay epoch", { value });
+            }
+            return false;
+        }
+
+        if (this.epoch === null) {
+            this.epoch = epoch;
+            this.logger.debug("relay epoch learned", { epoch });
+            return false;
+        }
+
+        if (epoch === this.epoch) {
+            return false;
+        }
+
+        this.logger.info("relay epoch changed, cursor reset", { from: this.cursor, epoch });
+
+        this.epoch = epoch;
+        this.cursor = 0;
+
+        return true;
     }
 
     backoffUntil() {

@@ -194,3 +194,21 @@ test("GET /dump lists the stored envelopes", async (t) => {
         size: envelope.byteLength,
     }]);
 });
+
+test("every response carries the storage's epoch, readable by browsers; new storage gets a new one", async (t) => {
+
+    const { server, get } = await startServer(t);
+    const alice = await PrivateIdentity.generate();
+
+    assert.match(server.storage.epoch, /^[0-9a-f]{32}$/);
+
+    const res = await get(alice);
+    assert.equal(res.headers.get("x-smerp-epoch"), server.storage.epoch);
+    assert.match(res.headers.get("access-control-expose-headers"), /\bx-smerp-epoch\b/);
+
+    const other = new SmerpServer();
+    assert.notEqual(other.storage.epoch, server.storage.epoch);
+
+    const kept = new SmerpServer({ storage: server.storage });
+    assert.equal(kept.storage.epoch, server.storage.epoch, "the epoch belongs to the storage");
+});

@@ -14,6 +14,7 @@ const ALLOWED_REQUEST_HEADERS = [
 // section 4, auth_rfc section 9).
 const EXPOSED_RESPONSE_HEADERS = [
     SmerpHeaders.cursor,
+    SmerpHeaders.epoch,
     SmerpHeaders.unauthorized,
     SmerpHeaders.relayPkh,
 ];

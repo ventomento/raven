@@ -11,6 +11,7 @@ import {
 import { StorageMemory } from "../../src/storage/storage-memory.js";
 import { TransportDefault } from "../../src/transport/transport-default.js";
 import { startRelay } from "../helpers/relay-fixtures.js";
+import { SmerpServer } from "../../src/server/index.js";
 import http from "node:http";
 
 const HOUR = 60 * 60 * 1000;
@@ -381,4 +382,42 @@ test("notify: a reply pushes once to the topic the peer subscribes to; a cold fi
         sequenceId: "raven",
         body: "New message",
     }]);
+});
+
+test("a relay restarted with empty storage on the same URL: clients notice the new epoch and miss nothing", async (t) => {
+
+    // Same key across the restart: the reset is noticed by the epoch alone.
+    const privateKeyHex = await (await PrivateIdentity.generate()).exportPrivateHex();
+
+    const first = new SmerpServer({ privateKeyHex });
+    await first.listen(0, "127.0.0.1");
+    const port = first.server.address().port;
+    const relay = { relayUrl: `http://127.0.0.1:${port}`, relayType: "archive" };
+
+    const alice = await startClient(t, relay);
+    const bob = await startClient(t, relay);
+
+    for (let i = 0; i < 5; i++) {
+        await bob.send(alice.publicKeyHex, `before ${i}`);
+    }
+    await alice.sync();
+
+    const [before] = await alice.relaysGet();
+    assert.ok(before.cursor >= 5);
+    await first.close();
+
+    const second = new SmerpServer({ privateKeyHex });
+    await second.listen(port, "127.0.0.1");
+    t.after(() => second.close());
+
+    await bob.send(alice.publicKeyHex, "after the restart");
+    await alice.sync();
+
+    const [after] = await alice.relaysGet();
+    assert.equal(after.epoch, second.storage.epoch);
+    assert.equal(after.failureCount, 0);
+
+    const texts = (await alice.envelopesGet()).map(e => e.plaintext);
+    assert.ok(texts.includes("after the restart"), "fetched although its cursor is below the old one");
+    assert.equal(texts.length, 6);
 });

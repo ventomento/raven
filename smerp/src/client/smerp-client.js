@@ -26,6 +26,7 @@ export const ClientStatus = Object.freeze({
 
 const SYNC_FIELDS = Object.freeze([
     "cursor",
+    "epoch",
     "relayPkh",
     "failureCount",
     "lastSuccessAt",
@@ -35,6 +36,7 @@ const SYNC_FIELDS = Object.freeze([
 
 const NOTIFY_FIELDS = Object.freeze([
     "cursor",
+    "epoch",
     "relayPkh",
     "failureCount",
     "lastFailureReason",

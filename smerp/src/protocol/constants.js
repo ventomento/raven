@@ -2,6 +2,7 @@ import { EnvelopeLayout } from "../../../smep/src/index.js";
 
 export const SmerpHeaders = Object.freeze({
     cursor: "x-smerp-cursor",
+    epoch: "x-smerp-epoch",
     relayPkh: "x-smerp-relay-pkh",
     unauthorized: "x-smerp-unauthorized",
     retryAfter: "retry-after",

@@ -4,7 +4,8 @@
 //  This server must NOT, under any circumstances, be used in production or
 //  exposed to a network. It exists so tests, the REPL and the web UI demo
 //  have a relay to talk to. Among other things it:
-//    - keeps every envelope in memory only (lost on restart, unbounded growth),
+//    - keeps every envelope in memory only (lost on restart, unbounded growth;
+//      a restart gets a new epoch, so clients notice and fetch again),
 //    - has no rate limits and never answers 429,
 //    - does not federate (smerp_rfc section 5) and never deletes envelopes,
 //    - serves GET /dump: every stored envelope's metadata, without auth,
@@ -76,9 +77,10 @@ export class SmerpServer {
 
     async handleRequest(req, res) {
         try {
-            // Every response carries the relay key and forbids caching
-            // (smerp_rfc section 1).
+            // Every response carries the relay key and the epoch, and forbids
+            // caching (smerp_rfc sections 1 and 4).
             res.setHeader(SmerpHeaders.relayPkh, await this.relayPkh());
+            res.setHeader(SmerpHeaders.epoch, this.storage.epoch);
             res.setHeader(SmerpHeaders.cacheControl, "no-store");
             setCorsHeaders(res);
 
