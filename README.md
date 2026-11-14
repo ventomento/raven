@@ -1,7 +1,7 @@
 # raven
 
-End-to-end encrypted messaging over untrusted relays, as a headless
-JavaScript library.
+End-to-end encrypted messaging system over untrusted relays. Build on 
+the SMEP and SMERP protocols. See the protocol spec section.
 
 Messages are sealed into encrypted envelopes (X25519 + AES-GCM) and posted
 to any number of relays, which only store and forward opaque bytes. The
