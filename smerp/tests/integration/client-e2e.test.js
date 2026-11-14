@@ -1,0 +1,403 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+    SmerpClient,
+    EventTypes,
+    DispatchError,
+    ContentTypes,
+    PrivateIdentity,
+} from "../../../index.js";
+import { StorageMemory } from "../../src/storage/storage-memory.js";
+import { TransportDefault } from "../../src/transport/transport-default.js";
+import { startRelay } from "../helpers/relay-fixtures.js";
+import { SmerpServer } from "../server/index.js";
+import http from "node:http";
+
+const HOUR = 60 * 60 * 1000;
+
+function countingTransport() {
+
+    const requests = [];
+
+    return {
+        requests,
+        gets: (relayUrl) => requests.filter(r =>
+            r.options.method === "GET" && (!relayUrl || r.url.startsWith(relayUrl))
+        ),
+        transport: (request) => {
+            requests.push(request);
+            return TransportDefault.transport(request);
+        },
+    };
+}
+
+async function startClient(t, relays = [], options = {}) {
+
+    const client = new SmerpClient({
+        identity: await PrivateIdentity.generate(),
+        syncIntervalMs: HOUR,
+        ...options,
+    });
+
+    await client.start();
+    t.after(() => client.stop());
+
+    for (const relay of [relays].flat()) {
+        await client.relaysPut(relay);
+    }
+
+    return client;
+}
+
+function collect(client, type) {
+
+    const events = [];
+    client.on(type, event => events.push(event));
+
+    return events;
+}
+
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test("text and bytes round-trip between two clients through a relay", async (t) => {
+
+    const { relay } = await startRelay(t);
+    const alice = await startClient(t, relay);
+    const bob = await startClient(t, relay);
+    const bobEnvelopes = collect(bob, EventTypes.ENVELOPE);
+
+    const sent = await alice.send(bob.publicKeyHex, "hello bob");
+
+    assert.deepEqual(sent.delivered, [relay.relayUrl]);
+    assert.deepEqual(sent.failed, []);
+    assert.match(sent.hash, /^[0-9a-f]{64}$/);
+
+    await alice.sync();
+    const [own] = await alice.envelopesGet({ hash: sent.hash });
+    assert.equal(own.direction, "outbound");
+    assert.equal(own.plaintext, "hello bob");
+    assert.equal(own.contentType, ContentTypes.TEXT_UTF8);
+    assert.equal(own.publicKeyHex, bob.publicKeyHex);
+
+    await bob.sync();
+    await settle();
+
+    const received = bobEnvelopes.find(e => e.envelope.hash === sent.hash).envelope;
+    assert.equal(received.direction, "inbound");
+    assert.equal(received.plaintext, "hello bob");
+    assert.equal(received.publicKeyHex, alice.publicKeyHex);
+
+    const bytes = new Uint8Array([0, 1, 2, 255]);
+    const sentBytes = await alice.send(bob.publicKeyHex, bytes);
+    await bob.sync();
+
+    const [binary] = await bob.envelopesGet({ hash: sentBytes.hash });
+    assert.equal(binary.contentType, ContentTypes.UNKNOWN);
+    assert.ok(binary.plaintext instanceof Uint8Array);
+    assert.deepEqual(binary.plaintext, bytes);
+
+    assert.equal((await bob.envelopesGet({ publicKeyHex: alice.publicKeyHex })).length, 2);
+
+    await alice.sync();
+    await alice.sync();
+    assert.equal((await alice.envelopesGet({ publicKeyHex: bob.publicKeyHex })).length, 2);
+});
+
+test("many small envelopes are fetched with one request", async (t) => {
+
+    const { relay } = await startRelay(t);
+    const alice = await startClient(t, relay);
+
+    const transporter = countingTransport();
+    const bob = await startClient(t, [], { transporter });
+
+    for (let i = 0; i < 30; i++) {
+        await alice.send(bob.publicKeyHex, `m${i}`);
+    }
+
+    await bob.relaysPut(relay);
+    await bob.sync();
+
+    assert.equal((await bob.envelopesGet()).length, 30);
+    assert.equal(transporter.gets().length, 3);
+    assert.equal((await bob.relaysGet())[0].cursor, 30);
+});
+
+test("a 4 MiB envelope round-trips, one byte more is refused by send", async (t) => {
+
+    const { relay } = await startRelay(t);
+    const alice = await startClient(t, relay);
+    const bob = await startClient(t, relay);
+
+    const largest = new Uint8Array(4 * 1024 * 1024 - 106).fill(7);
+
+    const sent = await alice.send(bob.publicKeyHex, largest, { contentType: ContentTypes.FILE });
+    await bob.sync();
+
+    const [received] = await bob.envelopesGet({ hash: sent.hash });
+    assert.equal(received.contentType, ContentTypes.FILE);
+    assert.deepEqual(received.plaintext, largest);
+
+    await assert.rejects(
+        alice.send(bob.publicKeyHex, new Uint8Array(largest.byteLength + 1)),
+        /too large/
+    );
+});
+
+test("the client learns the relay key and recovers when the relay rotates it", async (t) => {
+
+    const { server, relay } = await startRelay(t);
+    const alice = await startClient(t, relay);
+    const bob = await startClient(t, relay);
+
+    await bob.sync();
+
+    let [stored] = await bob.relaysGet();
+    assert.equal(stored.relayPkh, await server.relayPkh());
+    assert.equal(stored.failureCount, 0);
+
+    const rotated = await server.rotateKey();
+
+    await bob.sync();
+    [stored] = await bob.relaysGet();
+    assert.equal(stored.relayPkh, rotated);
+    assert.equal(stored.failureCount, 0);
+
+    const error = await alice.send(bob.publicKeyHex, "after rotation").catch(e => e);
+    assert.ok(error instanceof DispatchError);
+    assert.match(error.failed[0].error.message, /relay key learned, send again/);
+
+    const sent = await alice.send(bob.publicKeyHex, "after rotation");
+    await bob.sync();
+    assert.equal((await bob.envelopesGet({ hash: sent.hash })).length, 1);
+});
+
+test("an envelope held by several relays is stored and counted once", async (t) => {
+
+    const one = await startRelay(t);
+    const two = await startRelay(t);
+    const alice = await startClient(t, [one.relay, two.relay]);
+    const bob = await startClient(t, [one.relay, two.relay]);
+    const bobEnvelopes = collect(bob, EventTypes.ENVELOPE);
+
+    const sent = await alice.send(bob.publicKeyHex, "hi");
+    assert.equal(sent.delivered.length, 2);
+
+    await bob.sync();
+    await settle();
+
+    assert.equal(bobEnvelopes.length, 1);
+    assert.equal((await bob.envelopesGet()).length, 1);
+
+    const [conversation] = await bob.conversationsGet({ publicKeyHex: alice.publicKeyHex });
+    assert.equal(conversation.unreadCount, 1);
+});
+
+test("unread counts follow inbound envelopes and markRead clears them", async (t) => {
+
+    const { relay } = await startRelay(t);
+    const alice = await startClient(t, relay);
+    const bob = await startClient(t, relay);
+    const conversations = collect(bob, EventTypes.CONVERSATION);
+
+    await alice.send(bob.publicKeyHex, "one");
+    await alice.send(bob.publicKeyHex, "two");
+    await bob.sync();
+
+    const [conversation] = await bob.conversationsGet({ publicKeyHex: alice.publicKeyHex });
+    assert.equal(conversation.unreadCount, 2);
+
+    const read = await bob.markRead(alice.publicKeyHex);
+    assert.equal(read.unreadCount, 0);
+    await settle();
+    assert.equal(conversations.at(-1).conversation.unreadCount, 0);
+    assert.equal((await bob.conversationsGet({ publicKeyHex: alice.publicKeyHex }))[0].unreadCount, 0);
+
+    await alice.send(bob.publicKeyHex, "three");
+    await bob.sync();
+    assert.equal((await bob.conversationsGet({ publicKeyHex: alice.publicKeyHex }))[0].unreadCount, 1);
+
+    await alice.sync();
+    const [aliceSide] = await alice.conversationsGet({ publicKeyHex: bob.publicKeyHex });
+    assert.equal(aliceSide.unreadCount, 0);
+});
+
+test("records returned by get are detached copies", async (t) => {
+
+    const { relay } = await startRelay(t);
+    const client = await startClient(t, relay);
+
+    await client.send(client.publicKeyHex, "note");
+    await client.sync();
+
+    const [r] = await client.relaysGet();
+    r.relayType = "mutated";
+    const [e] = await client.envelopesGet();
+    e.plaintext = "mutated";
+    const [c] = await client.conversationsGet();
+    c.unreadCount = 99;
+
+    assert.equal((await client.relaysGet())[0].relayType, "archive");
+    assert.equal((await client.envelopesGet())[0].plaintext, "note");
+    assert.notEqual((await client.conversationsGet())[0].unreadCount, 99);
+});
+
+test("a client restarted on its storage resumes: same cursor and key, nothing twice", async (t) => {
+
+    const { relay } = await startRelay(t);
+    const alice = await startClient(t, relay);
+
+    const identity = await PrivateIdentity.generate();
+    const storage = new StorageMemory();
+
+    const first = new SmerpClient({ identity, storage, syncIntervalMs: HOUR });
+    await first.start();
+    await first.relaysPut(relay);
+    await alice.send(identity.publicKeyHex, "before");
+    await first.sync();
+    await first.stop();
+
+    await alice.send(identity.publicKeyHex, "after");
+
+    const transporter = countingTransport();
+    const second = new SmerpClient({ identity, storage, transporter, syncIntervalMs: HOUR });
+    const announced = collect(second, EventTypes.ENVELOPE);
+
+    await second.start();
+    t.after(() => second.stop());
+    await second.sync();
+    await settle();
+
+    const [firstGet] = transporter.gets();
+    assert.match(firstGet.url, /[?&]cursor=1&/);
+    assert.match(firstGet.url, /[?&]sig=/, "the stored key is used");
+
+    assert.deepEqual(announced.map(e => e.envelope.plaintext), ["after"]);
+    assert.equal((await second.envelopesGet()).length, 2);
+    assert.equal((await second.conversationsGet())[0].unreadCount, 2);
+});
+
+test("a dead relay does not stop sends or syncs through a live one", async (t) => {
+
+    const { relay: live } = await startRelay(t);
+    const dead = { relayUrl: "http://127.0.0.1:1", relayType: "archive" };
+
+    const alice = await startClient(t, [live, dead]);
+    const transporter = countingTransport();
+    const bob = await startClient(t, [], { transporter });
+    const errors = collect(bob, EventTypes.ERROR);
+
+    await bob.relaysPut(live);
+    await bob.relaysPut(dead);
+    await bob.sync();
+    await settle();
+
+    const sent = await alice.send(bob.publicKeyHex, "hi");
+    assert.deepEqual(sent.delivered, [live.relayUrl]);
+    assert.deepEqual(sent.failed.map(f => f.relayUrl), [dead.relayUrl]);
+
+    const [deadRecord] = await bob.relaysGet({ relayUrl: dead.relayUrl });
+    assert.equal(deadRecord.failureCount, 1);
+    assert.ok(errors.some(e => e.relayUrl === dead.relayUrl));
+
+    const deadRequests = transporter.gets(dead.relayUrl).length;
+    await bob.sync();
+
+    assert.equal(transporter.gets(dead.relayUrl).length, deadRequests);
+    assert.equal((await bob.envelopesGet({ hash: sent.hash })).length, 1);
+});
+
+async function startNtfyCapture(t) {
+
+    const received = [];
+    let notify = () => {};
+
+    const server = http.createServer((req, res) => {
+
+        const chunks = [];
+        req.on("data", chunk => chunks.push(chunk));
+        req.on("end", () => {
+            received.push({
+                method: req.method,
+                path: req.url,
+                title: req.headers.title,
+                sequenceId: req.headers["x-sequence-id"],
+                body: Buffer.concat(chunks).toString("utf8"),
+            });
+            res.writeHead(200, { "content-type": "application/json" }).end("{}");
+            notify();
+        });
+    });
+
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    t.after(() => new Promise(resolve => server.close(resolve)));
+
+    return {
+        received,
+        ntfyUrl: `http://127.0.0.1:${server.address().port}`,
+        next: () => new Promise(resolve => { notify = resolve; }),
+    };
+}
+
+test("notify: a reply pushes once to the topic the peer subscribes to; a cold first message doesn't", async (t) => {
+
+    const { relay } = await startRelay(t);
+    const ntfy = await startNtfyCapture(t);
+
+    const alice = await startClient(t, relay, { notify: true, ntfyUrl: ntfy.ntfyUrl });
+    const bob = await startClient(t, relay, { notify: true, ntfyUrl: ntfy.ntfyUrl });
+
+    await bob.send(alice.publicKeyHex, "hi alice");
+    await alice.sync();
+
+    const pushed = ntfy.next();
+    await alice.send(bob.publicKeyHex, "hi bob");
+    await pushed;
+
+    assert.deepEqual(ntfy.received, [{
+        method: "POST",
+        path: `/${await bob.notifyTopic(alice.publicKeyHex)}`,
+        title: "raven",
+        sequenceId: "raven",
+        body: "New message",
+    }]);
+});
+
+test("a relay restarted with empty storage on the same URL: clients notice the new epoch and miss nothing", async (t) => {
+
+    // Same key across the restart: the reset is noticed by the epoch alone.
+    const privateKeyHex = await (await PrivateIdentity.generate()).exportPrivateHex();
+
+    const first = new SmerpServer({ privateKeyHex });
+    await first.listen(0, "127.0.0.1");
+    const port = first.server.address().port;
+    const relay = { relayUrl: `http://127.0.0.1:${port}`, relayType: "archive" };
+
+    const alice = await startClient(t, relay);
+    const bob = await startClient(t, relay);
+
+    for (let i = 0; i < 5; i++) {
+        await bob.send(alice.publicKeyHex, `before ${i}`);
+    }
+    await alice.sync();
+
+    const [before] = await alice.relaysGet();
+    assert.ok(before.cursor >= 5);
+    await first.close();
+
+    const second = new SmerpServer({ privateKeyHex });
+    await second.listen(port, "127.0.0.1");
+    t.after(() => second.close());
+
+    await bob.send(alice.publicKeyHex, "after the restart");
+    await alice.sync();
+
+    const [after] = await alice.relaysGet();
+    assert.equal(after.epoch, second.storage.epoch);
+    assert.equal(after.failureCount, 0);
+
+    const texts = (await alice.envelopesGet()).map(e => e.plaintext);
+    assert.ok(texts.includes("after the restart"), "fetched although its cursor is below the old one");
+    assert.equal(texts.length, 6);
+});

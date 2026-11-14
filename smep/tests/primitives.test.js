@@ -1,0 +1,274 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  generateKeyPair,
+  deriveSharedSecret,
+  importPublicKey
+} from "../src/crypto/x25519.js";
+
+import {
+  encryptAesGcm,
+  decryptAesGcm
+} from "../src/crypto/aes-gcm.js";
+
+import {
+  deriveAesKey
+} from "../src/crypto/kdf.js";
+
+import {
+  randomIV
+} from "../src/crypto/random.js";
+
+test(
+  "X25519 derives identical shared secrets",
+  async () => {
+
+    const alice =
+      await generateKeyPair();
+
+    const bob =
+      await generateKeyPair();
+
+    const s1 =
+      await deriveSharedSecret(
+        alice.privateKey,
+        bob.publicKey
+      );
+
+    const s2 =
+      await deriveSharedSecret(
+        bob.privateKey,
+        alice.publicKey
+      );
+
+    assert.deepEqual(
+      [...s1],
+      [...s2]
+    );
+  }
+);
+
+test(
+  "AES-GCM encrypts and decrypts",
+  async () => {
+
+    const secret =
+      crypto.getRandomValues(
+        new Uint8Array(32)
+      );
+
+    const key =
+      await deriveAesKey(secret);
+
+    const plaintext =
+      new TextEncoder().encode(
+        "hello world"
+      );
+
+    const iv = randomIV();
+
+    const encrypted =
+      await encryptAesGcm({
+        key,
+        iv,
+        plaintext
+      });
+
+    const decrypted =
+      await decryptAesGcm({
+        key,
+        iv,
+        ciphertextWithTag:
+          encrypted
+      });
+
+    assert.equal(
+      new TextDecoder().decode(
+        decrypted
+      ),
+      "hello world"
+    );
+  }
+);
+
+test(
+  "AES-GCM rejects tampered ciphertext",
+  async () => {
+
+    const secret =
+      crypto.getRandomValues(
+        new Uint8Array(32)
+      );
+
+    const key =
+      await deriveAesKey(secret);
+
+    const plaintext =
+      new TextEncoder().encode(
+        "secret"
+      );
+
+    const iv = randomIV();
+
+    const encrypted =
+      await encryptAesGcm({
+        key,
+        iv,
+        plaintext
+      });
+
+    encrypted[0] ^= 0xff;
+
+    await assert.rejects(
+      async () => {
+
+        await decryptAesGcm({
+          key,
+          iv,
+          ciphertextWithTag:
+            encrypted
+        });
+
+      }
+    );
+  }
+);
+
+test(
+  "AES-GCM rejects mismatched aad",
+  async () => {
+
+    const key =
+      await deriveAesKey(
+        crypto.getRandomValues(
+          new Uint8Array(32)
+        )
+      );
+
+    const iv = randomIV();
+
+    const encrypted =
+      await encryptAesGcm({
+        key,
+        iv,
+        plaintext: new Uint8Array([1, 2, 3]),
+        aad: new Uint8Array([7])
+      });
+
+    await assert.rejects(
+      decryptAesGcm({
+        key,
+        iv,
+        ciphertextWithTag: encrypted,
+        aad: new Uint8Array([8])
+      })
+    );
+  }
+);
+
+function isRejectedLowOrderPoint(err) {
+  return (
+    err?.message?.includes("Invalid peer public key") ||
+    err?.name === "OperationError" ||
+    err?.message?.includes("OperationError")
+  );
+}
+
+test(
+  "X25519 rejects all-zero public key or produces safe failure",
+  async () => {
+
+    const alice =
+      await generateKeyPair();
+
+    const zeroPub =
+      await importPublicKey(
+        new Uint8Array(32)
+      );
+
+    try {
+
+      const shared =
+        await deriveSharedSecret(
+          alice.privateKey,
+          zeroPub
+        );
+
+      assert.notDeepEqual(
+        [...shared],
+        new Uint8Array(32)
+      );
+
+    } catch (err) {
+
+      assert.ok(
+        isRejectedLowOrderPoint(err),
+        `Unexpected error: ${err}`
+      );
+    }
+  }
+);
+
+const KNOWN_LOW_ORDER_PUBLIC_KEYS = [
+  "0000000000000000000000000000000000000000000000000000000000000000",
+  "0100000000000000000000000000000000000000000000000000000000000000"
+];
+
+for (const hex of KNOWN_LOW_ORDER_PUBLIC_KEYS) {
+
+  test(
+    `X25519 rejects low-order public key ${hex.slice(0, 8)}`,
+    async () => {
+
+      const alice =
+        await generateKeyPair();
+
+      const pub =
+        await importPublicKey(hex);
+
+      await assert.rejects(
+        deriveSharedSecret(alice.privateKey, pub),
+        isRejectedLowOrderPoint
+      );
+    }
+  );
+}
+
+const ATTACKER_PUBLIC_KEYS = [
+  "e0eb7a7c3b41b8ae1656e3fa1f7c4d7f6b6c5c2b4c6b6f0cb1f5c2d9e8f7a001",
+  "5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157"
+];
+
+for (const hex of ATTACKER_PUBLIC_KEYS) {
+
+  test(
+    `X25519 handles attacker public key ${hex.slice(0, 8)} safely`,
+    async () => {
+
+      const alice =
+        await generateKeyPair();
+
+      const pub =
+        await importPublicKey(hex);
+
+      try {
+
+        const shared =
+          await deriveSharedSecret(alice.privateKey, pub);
+
+        assert.notDeepEqual(
+          [...shared],
+          new Uint8Array(32)
+        );
+
+      } catch (err) {
+
+        assert.ok(
+          isRejectedLowOrderPoint(err),
+          `Unexpected error: ${err}`
+        );
+      }
+    }
+  );
+}

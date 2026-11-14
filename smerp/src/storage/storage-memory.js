@@ -1,0 +1,155 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+import {
+  StorageInterface,
+  newestFirst,
+  isBefore,
+} from "./storage-interface.js";
+
+export class StorageMemory
+  extends StorageInterface {
+
+  constructor() {
+
+    super();
+
+    this.envelopes =
+      new Map();
+
+    this.conversations =
+      new Map();
+
+    this.relays =
+      new Map();
+  }
+
+  async init() {}
+
+  async close() {}
+
+  async envelopesPut(record) {
+
+    this.envelopes.set(
+      record.hash,
+      structuredClone(record)
+    );
+
+    return record.hash;
+  }
+
+  async envelopesGet(options = {}) {
+    if (options.hash) {
+
+      const record =
+        this.envelopes.get(options.hash);
+
+      return record
+        ? [structuredClone(record)]
+        : [];
+    }
+
+    let results =
+      Array.from(
+        this.envelopes.values()
+      );
+
+    if (options.publicKeyHex) {
+
+      results =
+        results.filter(
+          x =>
+            x.publicKeyHex ===
+            options.publicKeyHex
+        );
+    }
+
+    if (options.beforeSentAt !== undefined) {
+
+      results =
+        results.filter(
+          x => isBefore(x, options)
+        );
+    }
+
+    results.sort(newestFirst);
+
+    if (options.limit) {
+
+      results =
+        results.slice(
+          0,
+          options.limit
+        );
+    }
+
+    return structuredClone(results);
+  }
+
+  async conversationsPut(record) {
+
+    this.conversations.set(
+      record.publicKeyHex,
+      structuredClone(record)
+    );
+    
+    return record.publicKeyHex;
+  }
+
+  async conversationsGet(options = {}) {
+
+    let results =
+      Array.from(
+        this.conversations.values()
+      );
+
+    if (options.publicKeyHex) {
+
+      results =
+        results.filter(
+          x =>
+            x.publicKeyHex ===
+            options.publicKeyHex
+        );
+    }
+
+    return structuredClone(results);
+  }
+
+  async relaysPut(record) {
+
+    this.relays.set(
+      record.relayUrl,
+      structuredClone(record)
+    );
+
+    return record.relayUrl;
+  }
+
+  async relaysGet(options = {}) {
+
+    let results =
+      Array.from(
+        this.relays.values()
+      );
+
+    if (options.relayUrl) {
+
+      results =
+        results.filter(
+          x =>
+            x.relayUrl ===
+            options.relayUrl
+        );
+    }
+
+    return structuredClone(results);
+  }
+
+  async relaysDelete({ relayUrl }) {
+
+    return this.relays.delete(relayUrl) ? 1 : 0;
+  }
+
+}

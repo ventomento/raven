@@ -1,0 +1,47 @@
+{
+  "name": "@ventomento/raven",
+  "version": "0.1.0",
+  "description": "End-to-end encrypted messaging over untrusted relays, as a headless JavaScript library",
+  "keywords": ["e2ee", "encryption", "messaging", "relay", "x25519", "webcrypto"],
+  "license": "MPL-2.0",
+  "homepage": "https://www.depvana.com/topic/505",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ventomento/raven.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./smep": {
+      "types": "./smep/src/index.d.ts",
+      "default": "./smep/src/index.js"
+    },
+    "./smerp": {
+      "types": "./smerp/src/index.d.ts",
+      "default": "./smerp/src/index.js"
+    },
+    "./webui": {
+      "types": "./webui/src/index.d.ts",
+      "default": "./webui/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "smep/src",
+    "smerp/src",
+    "webui/src",
+    "docs"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

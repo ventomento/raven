@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>smerp</title>
+  <style id="login-style">
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #3b4352;
+      color: #eef2f7;
+      color-scheme: dark;
+    }
+    form {
+      width: min(400px, calc(100% - 32px));
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 28px 24px;
+      border: 1px solid #4c5464;
+      border-radius: 12px;
+      background: #454e5e;
+      box-shadow: 0 1px 2px rgb(10 14 22 / 0.25), 0 4px 14px rgb(10 14 22 / 0.12);
+    }
+    h1 { margin: 0 0 8px; font-size: 1.4rem; letter-spacing: -0.01em; }
+    input, button {
+      font: inherit;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #565f70;
+      background: #4d5667;
+      color: inherit;
+    }
+    button { cursor: pointer; font-weight: 500; }
+    button:disabled { cursor: not-allowed; opacity: 0.55; }
+    button[type="submit"] { background: #82b4ff; border-color: #82b4ff; color: #0f1b2d; font-weight: 650; }
+    button:focus-visible { outline: 2px solid #82b4ff; outline-offset: 2px; }
+    .or { text-align: center; color: #c4ccd8; font-size: 0.85rem; }
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 6px;
+      color: #c4ccd8;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .toggle input { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: #82b4ff; }
+    .error { color: #ffb1a9; min-height: 1.5em; }
+  </style>
+</head>
+<body>
+
+  <form id="login">
+    <h1>smerp</h1>
+    <input id="key-file" type="file" hidden>
+    <button type="submit">Open key file</button>
+    <div class="or">or</div>
+    <button id="generate" type="button">Generate new identity</button>
+    <label class="toggle">
+      <input id="notify" type="checkbox">
+      Send phone notifications (ntfy)
+    </label>
+    <div class="error" id="error" role="alert"></div>
+  </form>
+
+  <script type="module">
+    import { PrivateIdentity } from "../../index.js";
+    import { WebUi, browserSupport } from "../src/index.js";
+
+    const form = document.getElementById("login");
+    const errorLine = document.getElementById("error");
+
+    const relays = [{
+      relayUrl: "http://localhost:8000",
+      relayType: "relay",
+    }];
+
+    async function open(privateKeyHex) {
+      try {
+        const params = new URLSearchParams(location.search);
+        const debug = params.has("debug");
+        const notify = document.getElementById("notify").checked;
+        const ntfyUrl = params.get("ntfy");
+        await new WebUi({ privateKeyHex, relays, debug, notify, ntfyUrl }).start();
+        document.getElementById("login-style").remove();
+      }
+      catch (error) {
+        errorLine.textContent = error.message;
+      }
+    }
+
+    // ?notify ticks the notifications box; ?ntfy=<url> picks another ntfy server.
+    document.getElementById("notify").checked = new URLSearchParams(location.search).has("notify");
+
+    const keyFile = document.getElementById("key-file");
+
+    browserSupport().then(support => {
+      if (!support.ok) {
+        errorLine.textContent = support.message;
+        for (const button of form.querySelectorAll("button")) {
+          button.disabled = true;
+        }
+      }
+    });
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      keyFile.click();
+    });
+
+    keyFile.addEventListener("change", async () => {
+      const [file] = keyFile.files;
+      keyFile.value = "";
+      if (!file) {
+        return;
+      }
+      errorLine.textContent = "";
+      const privateKeyHex = (await file.text()).split(/\r?\n/, 1)[0].trim();
+      if (!privateKeyHex) {
+        errorLine.textContent = "The key file's first line is empty.";
+        return;
+      }
+      void open(privateKeyHex);
+    });
+
+    document.getElementById("generate").addEventListener("click", async () => {
+      const identity = await PrivateIdentity.generate();
+      void open(await identity.exportPrivateHex());
+    });
+  </script>
+
+</body>
+</html>
